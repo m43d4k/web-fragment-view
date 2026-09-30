@@ -13,7 +13,8 @@ interface Metadata<T> {
 interface State {
   area: Area;
   folder: string | null;
-  tag: string | null;
+  selectedTags: Set<string>;
+  tagMode: 'AND' | 'OR';
   query: string;
   channels: Metadata<Channel>;
   tags: Metadata<Tag>;
@@ -33,7 +34,8 @@ interface State {
 const state: State = {
   area: 'active',
   folder: null,
-  tag: null,
+  selectedTags: new Set(),
+  tagMode: 'AND',
   query: '',
   channels: emptyMetadata(),
   tags: emptyMetadata(),
@@ -85,9 +87,12 @@ class RevisionMismatchError extends Error {
   constructor() { super('同期中に一覧が更新されました。最新の一覧から読み直してください。'); }
 }
 
-function queryString(params: Record<string, string | null>): string {
+function queryString(params: Record<string, string | string[] | null>): string {
   const search = new URLSearchParams();
-  for (const [key, value] of Object.entries(params)) if (value) search.set(key, value);
+  for (const [key, value] of Object.entries(params)) {
+    if (Array.isArray(value)) value.forEach((item) => search.append(key, item));
+    else if (value) search.set(key, value);
+  }
   const result = search.toString();
   return result ? `?${result}` : '';
 }
@@ -160,7 +165,8 @@ async function loadFeed(firstPage = false): Promise<void> {
   const params = {
     area: state.area,
     folder: state.folder,
-    tag: state.tag,
+    tag: [...state.selectedTags].sort(),
+    tagMode: state.tagMode,
     q: state.query || null,
     cursor: firstPage ? null : state.cursor,
   };
@@ -278,8 +284,8 @@ function render(): void {
   const channelRows = state.channels.items.map((channel) => `<button class="channel-row${state.folder === channel.folder ? ' selected' : ''}" data-action="select-folder" data-folder="${escapeHtml(channel.folder)}">
     <span class="channel-hash">#</span><span class="channel-name">${escapeHtml(channel.folder)}</span><span class="channel-count">${channel.count}</span>
   </button>`).join('');
-  const tagOptions = state.tags.items.map((tag) => `<button class="tag-option${state.tag === tag.name ? ' selected' : ''}" data-action="select-tag" data-tag="${escapeHtml(tag.name)}"># ${escapeHtml(tag.name)} <span>${tag.count}</span></button>`).join('');
-  const filtered = state.folder || state.tag || state.query;
+  const tagOptions = state.tags.items.map((tag) => `<button class="tag-option${state.selectedTags.has(tag.name) ? ' selected' : ''}" data-action="select-tag" data-tag="${escapeHtml(tag.name)}" aria-pressed="${state.selectedTags.has(tag.name)}"># ${escapeHtml(tag.name)} <span>${tag.count}</span></button>`).join('');
+  const filtered = state.folder || state.selectedTags.size > 0 || state.query;
   const articleContent = state.articles.map(articleMarkup).join('');
   const noMore = state.cursor === null && !state.loadingFeed && state.articles.length > 0;
   const hasNoResults = !state.loadingFeed && !state.feedError && !state.revisionMismatch && !state.articles.length;
@@ -298,6 +304,7 @@ function render(): void {
         ${state.channels.cursor ? `<button class="subtle-button" data-action="load-channels" ${state.channels.loading ? 'disabled' : ''}>${state.channels.loading ? '読み込み中…' : 'フォルダをもっと見る'}</button>` : ''}
       </div>
       <div class="sidebar-section tags-section"><div class="section-heading"><span>タグ</span><span class="section-count">${state.tags.items.length}${state.tags.cursor ? '+' : ''}</span></div>
+        <button class="tag-mode-button" data-action="toggle-tag-mode" aria-label="タグ条件: ${state.tagMode === 'AND' ? 'すべて含む' : 'いずれかを含む'}。クリックで切り替え">${state.tagMode} · ${state.tagMode === 'AND' ? 'すべて含む' : 'いずれかを含む'}</button>
         ${tagOptions || (state.tags.loading ? '<p class="side-note">読み込み中…</p>' : '<p class="side-note">タグはありません</p>')}
         ${state.tags.error ? `<p class="side-error">${escapeHtml(state.tags.error)}</p><button class="subtle-button" data-action="load-tags">再試行</button>` : ''}
         ${state.tags.cursor ? `<button class="subtle-button" data-action="load-tags" ${state.tags.loading ? 'disabled' : ''}>${state.tags.loading ? '読み込み中…' : 'タグをもっと見る'}</button>` : ''}
@@ -313,7 +320,7 @@ function render(): void {
       <section class="feed-toolbar" aria-label="記事検索">
         <form class="search-form" id="search-form"><label class="sr-only" for="search-input">記事を検索</label><input id="search-input" name="q" type="search" value="${escapeHtml(state.query)}" placeholder="記事を検索…" autocomplete="off" /><button type="submit" aria-label="検索">⌕</button></form>
       </section>
-      ${filtered ? `<div class="active-filters">${state.folder ? `<button data-action="clear-folder"># ${escapeHtml(state.folder)} <span>×</span></button>` : ''}${state.tag ? `<button data-action="clear-tag"># ${escapeHtml(state.tag)} <span>×</span></button>` : ''}${state.query ? `<button data-action="clear-query">検索: ${escapeHtml(state.query)} <span>×</span></button>` : ''}<button class="clear-all" data-action="clear-filters">条件をクリア</button></div>` : ''}
+      ${filtered ? `<div class="active-filters">${state.folder ? `<button data-action="clear-folder"># ${escapeHtml(state.folder)} <span>×</span></button>` : ''}${[...state.selectedTags].map((tag) => `<button data-action="clear-tag" data-tag="${escapeHtml(tag)}" aria-label="${escapeHtml(tag)} の絞り込みを解除"># ${escapeHtml(tag)} <span>×</span></button>`).join('')}${state.query ? `<button data-action="clear-query">検索: ${escapeHtml(state.query)} <span>×</span></button>` : ''}<button class="clear-all" data-action="clear-filters">条件をクリア</button></div>` : ''}
       <div class="feed-scroll" id="feed-scroll" aria-live="polite">
         ${state.revisionMismatch ? `<div class="notice warning" role="alert"><strong>一覧が更新されました</strong><p>記事の追加や移動があったため、ページを続けて表示できません。</p><button class="primary-button" data-action="reset-feed">最新の一覧を読み込む</button></div>` : ''}
         ${state.feedError ? `<div class="notice error" role="alert"><strong>記事を読み込めませんでした</strong><p>${escapeHtml(state.feedError)}</p><button class="primary-button" data-action="retry-feed">再試行</button></div>` : ''}
@@ -355,7 +362,7 @@ app.addEventListener('click', (event) => {
     metadataControllers.forEach((entry) => entry.controller.abort());
     metadataControllers = [];
     state.folder = null;
-    state.tag = null;
+    state.selectedTags.clear();
     state.channels = emptyMetadata();
     state.tags = emptyMetadata();
     resetFeed();
@@ -368,16 +375,21 @@ app.addEventListener('click', (event) => {
     resetFeed();
     if (restoreFocus) focusMenuButton();
   } else if (action === 'select-tag') {
-    const restoreFocus = state.channelDrawerOpen;
-    const tag = target.dataset.tag ?? null;
-    state.tag = state.tag === tag ? null : tag;
-    state.channelDrawerOpen = false;
+    const tag = target.dataset.tag;
+    if (!tag) return;
+    if (state.selectedTags.has(tag)) state.selectedTags.delete(tag);
+    else state.selectedTags.add(tag);
     resetFeed();
-    if (restoreFocus) focusMenuButton();
-  } else if (action === 'clear-tag') { state.tag = null; resetFeed(); }
+  } else if (action === 'toggle-tag-mode') {
+    state.tagMode = state.tagMode === 'AND' ? 'OR' : 'AND';
+    resetFeed();
+  } else if (action === 'clear-tag') {
+    state.selectedTags.delete(target.dataset.tag ?? '');
+    resetFeed();
+  }
   else if (action === 'clear-folder') { state.folder = null; resetFeed(); }
   else if (action === 'clear-query') { state.query = ''; resetFeed(); }
-  else if (action === 'clear-filters') { state.folder = null; state.tag = null; state.query = ''; resetFeed(); }
+  else if (action === 'clear-filters') { state.folder = null; state.selectedTags.clear(); state.query = ''; resetFeed(); }
   else if (action === 'load-channels') void loadMetadata('channels');
   else if (action === 'load-tags') void loadMetadata('tags');
   else if (action === 'load-more') void loadFeed();

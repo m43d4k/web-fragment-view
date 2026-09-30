@@ -51,6 +51,61 @@ describe('read API', () => {
     const none = await (await request('/api/articles?q=' + encodeURIComponent('存在しない'))).json() as any;
     expect(none.items).toEqual([]);
   });
+  it('combines multiple tags with AND by default or OR when requested', async () => {
+    const and = await request('/api/articles?tag=memo&tag=日本語');
+    expect((await and.json() as any).items).toEqual([]);
+    const or = await request('/api/articles?tag=memo&tag=日本語&tagMode=OR');
+    const first = await or.json() as any;
+    expect(first.items).toHaveLength(20);
+    const second = await (await request('/api/articles?tag=memo&tag=日本語&tagMode=OR&cursor=' + encodeURIComponent(first.nextCursor))).json() as any;
+    expect(second.items).toHaveLength(5);
+    expect(new Set([...first.items, ...second.items].map((item: any) => item.id)).size).toBe(25);
+    const single = await (await request('/api/articles?tag=日本語&tagMode=OR')).json() as any;
+    expect(single.items.map((item: any) => item.id)).toEqual(['0000']);
+    const unfiltered = await (await request('/api/articles?tagMode=OR')).json() as any;
+    expect(unfiltered.items).toHaveLength(20);
+  });
+  it('combines tags with area, folder, and search filters', async () => {
+    const db = env.DB;
+    const fixtures = [
+      ['multi-a', 'active', 'special', ['alpha', 'beta'], '共通の話題'],
+      ['multi-b', 'active', 'special', ['alpha'], '共通の話題'],
+      ['multi-c', 'active', 'other', ['alpha', 'beta'], '共通の話題'],
+      ['multi-d', 'archive', 'special', ['alpha', 'beta'], '共通の話題'],
+      ['multi-e', 'active', 'special', ['alpha', 'beta'], '別の話題'],
+    ] as const;
+    try {
+      for (const [id, area, folder, tags, body] of fixtures) {
+        await db.prepare('INSERT INTO articles (id,path,area,folder,title,created_at,updated_at,body,tags_json,attachments_json,hash,search_text,search_tokens) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)')
+          .bind(id, `${area}/${folder}/${id}.md`, area, folder, id, '2026-08-01T00:00:00.000Z', '2026-08-01T00:00:00.000Z', body,
+            JSON.stringify(tags), '[]', id, normalizeSearch(body), searchTokens(body)).run();
+      }
+      const base = '/api/articles?area=active&folder=special&q=' + encodeURIComponent('共通');
+      const and = await (await request(base + '&tag=alpha&tag=beta')).json() as any;
+      expect(and.items.map((item: any) => item.id)).toEqual(['multi-a']);
+      const or = await (await request(base + '&tag=alpha&tag=beta&tagMode=OR')).json() as any;
+      expect(or.items.map((item: any) => item.id)).toEqual(['multi-b', 'multi-a']);
+    } finally {
+      for (const [id] of fixtures) await db.prepare('DELETE FROM articles WHERE id = ?').bind(id).run();
+    }
+  });
+  it('normalizes tag order and duplicates in cursor scope, but rejects changed filters', async () => {
+    const page = await (await request('/api/articles?tag=memo&tag=日本語&tagMode=OR')).json() as any;
+    const cursor = '&cursor=' + encodeURIComponent(page.nextCursor);
+    expect((await request('/api/articles?tag=日本語&tag=memo&tag=memo&tagMode=OR' + cursor)).status).toBe(200);
+    expect((await request('/api/articles?tag=memo&tag=日本語' + cursor)).status).toBe(400);
+    expect((await request('/api/articles?tag=memo&tag=日本語&tagMode=OR&folder=test' + cursor)).status).toBe(400);
+    const memo = await (await request('/api/articles?tag=memo&tag=memo')).json() as any;
+    expect(memo.items).toHaveLength(20);
+    expect((await request('/api/articles?tag=memo&tagMode=AND&cursor=' + encodeURIComponent(memo.nextCursor))).status).toBe(200);
+  });
+  it('rejects empty, excessive, and overlong tags and unknown tag modes', async () => {
+    for (const path of ['/api/articles?tag=', '/api/articles?tag=' + 'x'.repeat(101),
+      '/api/articles?' + Array.from({ length: 65 }, () => 'tag=x').join('&'),
+      '/api/articles?tagMode=XOR']) {
+      expect((await request(path)).status).toBe(400);
+    }
+  });
   it('does not interpret query text as SQL or FTS syntax', async () => {
     const response = await request('/api/articles?q=' + encodeURIComponent('" OR 1=1 --'));
     expect(response.status).toBe(200);

@@ -54,18 +54,31 @@ async function readPage(db: D1Database, sql: string, params: unknown[], cursor: 
 async function listArticles(url: URL, env: Env): Promise<Response> {
   const area = areaFrom(url);
   const folder = url.searchParams.get('folder');
-  const tag = url.searchParams.get('tag');
+  const rawTags = url.searchParams.getAll('tag');
+  const tagMode = url.searchParams.get('tagMode') ?? 'AND';
   const q = url.searchParams.get('q') ?? '';
-  if ((folder?.length ?? 0) > 512 || (tag?.length ?? 0) > 100) return invalid('絞り込み条件が長すぎます。');
+  if ((folder?.length ?? 0) > 512 || rawTags.length > 64 || rawTags.some(tag => tag.length < 1 || tag.length > 100))
+    return invalid('絞り込み条件が不正です。');
+  if (tagMode !== 'AND' && tagMode !== 'OR') return invalid('タグの絞り込み方法が不正です。');
+  const tags = [...new Set(rawTags)].sort();
   let search: ReturnType<typeof searchQuery>;
   try { search = searchQuery(q); } catch (error) { return invalid((error as Error).message); }
-  const scope = JSON.stringify(['articles', area, folder, tag, q]);
+  const scope = JSON.stringify(['articles', area, folder, tags, tagMode, q]);
   const cursor = decodeCursor(url.searchParams.get('cursor'), scope);
   if (cursor && cursor.after.length !== 2) return invalid('カーソルが不正です。');
   const where = ['a.area = ?'];
   const params: unknown[] = [area];
   if (folder !== null) { where.push('a.folder = ?'); params.push(folder); }
-  if (tag !== null) { where.push('a.id IN (SELECT article_id FROM article_tags WHERE tag = ?)'); params.push(tag); }
+  if (tags.length) {
+    const placeholders = tags.map(() => '?').join(',');
+    if (tagMode === 'AND') {
+      where.push(`a.id IN (SELECT article_id FROM article_tags WHERE tag IN (${placeholders}) GROUP BY article_id HAVING count(*) = ?)`);
+      params.push(...tags, tags.length);
+    } else {
+      where.push(`a.id IN (SELECT article_id FROM article_tags WHERE tag IN (${placeholders}))`);
+      params.push(...tags);
+    }
+  }
   if (search.match) {
     where.push('a.id IN (SELECT id FROM articles_fts WHERE articles_fts MATCH ?)');
     params.push(search.match);

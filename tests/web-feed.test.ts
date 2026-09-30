@@ -60,3 +60,32 @@ it('does not repeat a thumbnail from the article body in the attachment list', a
   expect(post.querySelector('.attachment')).toBeNull();
   vi.unstubAllGlobals();
 });
+
+it('toggles multiple tags, switches AND/OR, and clears one selection without losing the others', async () => {
+  document.body.innerHTML = '<div id="app"></div>';
+  const calls: URL[] = [];
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+    const parsed = new URL(url, 'https://viewer.example');
+    if (parsed.pathname === '/api/articles') calls.push(parsed);
+    return Response.json({ items: parsed.pathname === '/api/tags' ? [{ name: 'A', count: 2 }, { name: 'B', count: 1 }] : [], revision: 1, nextCursor: null });
+  }));
+  vi.resetModules();
+  await import('../src/web/main');
+  await vi.waitFor(() => expect(document.querySelectorAll('.tag-option')).toHaveLength(2));
+  const click = (selector: string) => document.querySelector<HTMLButtonElement>(selector)!.click();
+  click('.tag-option[data-tag="A"]');
+  await vi.waitFor(() => expect(calls.at(-1)?.searchParams.getAll('tag')).toEqual(['A']));
+  click('.tag-option[data-tag="B"]');
+  await vi.waitFor(() => expect(calls.at(-1)?.searchParams.getAll('tag')).toEqual(['A', 'B']));
+  expect(calls.at(-1)?.searchParams.get('tagMode')).toBe('AND');
+  expect(document.querySelectorAll('.tag-option[aria-pressed="true"]')).toHaveLength(2);
+  click('[data-action="toggle-tag-mode"]');
+  await vi.waitFor(() => expect(calls.at(-1)?.searchParams.get('tagMode')).toBe('OR'));
+  expect(calls.at(-1)?.searchParams.getAll('tag')).toEqual(['A', 'B']);
+  click('[data-action="clear-tag"][data-tag="A"]');
+  await vi.waitFor(() => expect(calls.at(-1)?.searchParams.getAll('tag')).toEqual(['B']));
+  click('.tag-option[data-tag="B"]');
+  await vi.waitFor(() => expect(calls.at(-1)?.searchParams.getAll('tag')).toEqual([]));
+  expect(calls.at(-1)?.searchParams.has('cursor')).toBe(false);
+  vi.unstubAllGlobals();
+});
