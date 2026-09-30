@@ -1,0 +1,37 @@
+{
+  "name": "fragment-view",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.22.1"
+  },
+  "scripts": {
+    "dev": "npm run build:web && wrangler dev --local --env local",
+    "build:web": "vite build",
+    "build": "npm run build:web && wrangler deploy --env='' --dry-run --outdir dist/worker",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "sync": "tsx scripts/sync/cli.ts",
+    "db:migrate:local": "wrangler d1 migrations apply DB --local --env local",
+    "demo": "tsx scripts/demo.ts"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "3.1142.0",
+    "dompurify": "3.4.16",
+    "jose": "6.2.12",
+    "marked": "18.0.14",
+    "sharp": "0.35.5"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "5.20260929.1",
+    "@types/node": "26.6.3",
+    "jsdom": "29.1.1",
+    "miniflare": "5.20260926.1-alpha",
+    "tsx": "4.23.15",
+    "typescript": "7.0.2",
+    "vite": "8.3.1",
+    "vitest": "5.0.2",
+    "wrangler": "4.143.1"
+  }
+}

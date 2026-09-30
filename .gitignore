@@ -1,0 +1,25 @@
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+
+# Dependencies and generated output
+node_modules/
+dist/
+build/
+coverage/
+*.tsbuildinfo
+*.log
+
+# Local Cloudflare state
+.wrangler/
+.dev.vars*
+!.dev.vars.example
+
+# Local secrets (sample files may be committed)
+.env
+.env.*
+!.env.example
+
+# The private vault belongs to a separate repository
+/fragmentbox/

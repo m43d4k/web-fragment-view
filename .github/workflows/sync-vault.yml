@@ -1,0 +1,77 @@
+name: Sync private vault
+
+on:
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: Apply the reviewed plan to D1 and R2
+        required: true
+        default: false
+        type: boolean
+  repository_dispatch:
+    types: [vault-push]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fragment-vault-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    # Automatic sync stays disabled until the repository owner enables it in
+    # Settings → Secrets and variables → Actions → Variables.
+    if: github.event_name == 'workflow_dispatch' || vars.SYNC_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out this repository's main branch
+        uses: actions/checkout@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version-file: .node-version
+          cache: npm
+
+      - name: Check out private vault main
+        uses: actions/checkout@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          repository: m43d4k/fragments
+          ref: main
+          token: ${{ secrets.VAULT_READ_TOKEN }}
+          path: vault-source
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Move vault checkout outside the workspace
+        run: mv "$GITHUB_WORKSPACE/vault-source" "$RUNNER_TEMP/fragment-vault"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Plan sync (read-only)
+        if: github.event_name == 'workflow_dispatch' && inputs.apply != true
+        run: npm run sync -- --vault "$RUNNER_TEMP/fragment-vault/fragmentbox"
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          D1_DATABASE_ID: ${{ secrets.D1_DATABASE_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          R2_BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+
+      - name: Apply sync
+        if: github.event_name == 'repository_dispatch' || inputs.apply == true
+        run: npm run sync -- --vault "$RUNNER_TEMP/fragment-vault/fragmentbox" --apply
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          D1_DATABASE_ID: ${{ secrets.D1_DATABASE_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          R2_BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}

@@ -1,0 +1,136 @@
+# Fragment View
+
+## 目的と範囲
+
+FragmentBoxのvaultをスマートフォンから閲覧する、独立した読み取り専用Webアプリ。
+この文書を基にローカルで実装・検証する。GitHub・Cloudflareの設定、資源作成、同期の有効化と公開操作はユーザーが行う。
+
+- 正本は非公開GitHubリポジトリ `m43d4k/fragments`。
+- 対象は `fragmentbox/active/フォルダ名/記事.md`、`fragmentbox/archive/フォルダ名/記事.md`、`fragmentbox/assets/`。
+- 既存のPCアプリとvaultの内容は変更しない。新しいコードはこの別リポジトリで管理する。
+- D1・R2はvaultから再構築できる閲覧用コピー。編集・投稿・双方向同期・オフライン全件保存は対象外。
+
+## 構成案
+
+```text
+アプリのmainへのpush → Cloudflare Workers Builds（検証・ビルド・公開）→ Worker / UI
+vaultへのpush → GitHub Actions（解析・差分同期・サムネイル生成）
+                 ├─ D1：本文・日時・フォルダ・タグ・検索索引・同期状態
+                 └─ R2：画像・添付原本・サムネイル（非公開）
+スマホ → Cloudflare Access → Worker（UI配信・読み取りAPI）→ D1 / R2
+```
+
+TypeScriptを使い、UI・Worker・同期スクリプトを1リポジトリで管理する。
+UIはViteとDOM操作、Markdown表示はmarkedとDOMPurify、Access検証はjoseを使用する。
+
+```text
+AGENTS.md                  作業ルール
+SPEC.md                    要件・最小設計・未確定事項
+README.md                  セットアップと運用手順
+src/web/                   スマートフォン向けUI
+src/worker/                認証確認・読み取りAPI・R2配信
+src/shared/                API型など最小限の共有定義
+scripts/sync/              vault解析・差分同期・サムネイル生成
+migrations/                D1スキーマと検索索引
+tests/                     合成データによる必要な検証
+.github/workflows/         CIと同期の実行定義
+wrangler.jsonc             Worker・D1・R2の設定（秘密情報なし）
+```
+
+上記の構成に、ローカルデモと外部通信なしのvault検査コマンドを用意する。
+
+## 閲覧とAPI
+
+- Discord風にフォルダをチャンネルとして表示し、記事を時系列に並べる。スマホではチャンネル一覧を開閉できる。
+- active / archiveを切り替え、同名フォルダも区別する。
+- 記事は標準20件、最大20件ずつ返す。日時と一意キーによる安定したカーソルで追加取得する。
+- 表示中の記事は100件まで保持し、それ以上は「さらに古い記事を表示」で次の表示範囲へ進む。最新へ戻る操作も用意する。
+- フォルダ・タグ・全文検索はサーバー側で処理し、検索結果にも同じ取得上限を適用する。
+- 一覧本文は長さを制限し、長文の続きは操作時に取得する。画像は表示範囲の小さなサムネイルだけを遅延取得する。
+- 原寸画像と添付は明示操作時だけWorker経由で取得する。全ページの先読みや検索索引のダウンロードはしない。
+- API案：`GET /api/channels`、`GET /api/tags`、`GET /api/articles`、`GET /api/articles/:id`、`GET /api/assets/:id?variant=thumbnail|original`。メタデータ一覧にも件数上限を設ける。
+- 同期による並び替えの最中にページを継続する場合の挙動は明示し、必要なら一覧を再取得させる。
+
+## 保存と検索
+
+- D1の最小単位は記事、記事とタグの対応、添付メタデータ、同期状態。記事には元パス、active/archive、フォルダ、本文、日時、内容ハッシュを保持する。
+- 元パスを同期キーの基本とし、移動は旧パスの削除と新パスの追加として扱える設計にする。vaultへのID書き込みは不要。
+- 日時・フォルダ・タグに適切な索引を置く。全文検索索引もD1に保持する。
+- 検索はNFKC正規化・小文字化した本文とタイトルから1文字・2文字のトークンを作り、D1のFTS5で候補を絞って文字列一致を確認する。日本語を含め、空白区切りのAND検索に対応する。実vaultで索引容量と読み取り行数を計測してから有効化する。
+- R2キーには内容ハッシュを使い、原本とサムネイルを分ける。サムネイルはActions側で事前生成する。
+
+## アプリの公開
+
+アプリの `main` へのpushをCloudflare Workers Buildsで検知し、依存のインストール・型チェック・テスト・ビルドに成功したらWorkerとUIを公開する。初回公開後のGitHub接続とビルド設定はユーザーが行う。非本番ブランチの自動ビルドは無効にする。アプリのデプロイではvault同期やD1 migrationを実行しない。具体的な設定値は `docs/setup.md` に記載する。
+
+## 同期
+
+1. 同期対象ブランチのコミットを固定し、対象ファイルの一覧とハッシュを作る。まずdry-runで変更件数・転送量・削除候補を確認できるようにする。
+2. 前回の保存状態と比較し、必要なR2オブジェクトを先にアップロードする。
+3. 記事・タグ・検索索引を整合する単位でD1へ反映する。同じ内容を再実行しても重複しない。
+4. 全対象の解析と必要な反映に成功した後で、正本にない記事を削除する。取得失敗や解析失敗を空のvaultとして扱わない。
+5. 全処理成功後に同期済みコミットを記録する。不要なR2オブジェクトは参照を確認し、猶予期間を設けて回収する。
+
+同期は直列化し、完了済み・試行済みの両コミットに対して祖先関係を確認して巻き戻しを防ぐ。途中失敗時は成功扱いにせず、同じコミットまたは新しいコミットの再実行で正本と一致させる。
+同期中は更新前後の記事が一時的に混在することを許容するが、未アップロードの添付を参照させない。
+書き込みは記事単位に分割する。`--inspect` で容量をローカル見積もりし、remote dry-runで差分件数と転送量を確認する。無料枠超過で停止した場合は、枠の回復後に再実行する。標準では1,000記事を超える反映は明示的な上限指定を必要とする。
+
+別リポジトリのpush通知は、正本リポジトリの `fragmentbox/` 外へ最小の通知workflowを置き、このリポジトリへdispatchする構成例を用意する。
+通知workflowの配置とSecrets・Variablesの設定はユーザーが行う。自動同期は `SYNC_ENABLED=true` にするまで無効。
+同期先ではイベントの古いSHAを使わず、実行時点のmainを取得する。さらに最後に成功したコミットの祖先関係を確認する。
+
+## 非公開性
+
+- 公開先は取得済みドメインのサブドメイン `https://fragment.m43d4k.fyi`。WorkerのCustom Domainを使い、設定と公開はユーザーが行う。
+- Accessで本人のIDだけを許可し、UI・API・画像・添付の全経路を保護する。
+- WorkerでもAccessトークンの署名・発行元・宛先・有効期限を検証し、未認証は拒否する。
+- `workers.dev`・プレビューURLなどの迂回経路を無効化または同等に保護する。R2の公開URLと公開カスタムドメインは使わない。
+- Markdownは安全に描画し、実行可能なHTMLや危険なURLを許可しない。添付参照はvault内へ限定する。
+- 私的なレスポンスを共有キャッシュへ保存しない。同期用資格情報はGitHub Secrets等で管理し、読み取りアプリへ渡さない。
+
+## 無料枠の確認
+
+確認日：2026-09-30 JST。実際の契約・既存使用量は未確認。実行前に再確認する。
+
+| サービス | 現行の無料枠・主な制約 |
+| --- | --- |
+| Workers Free | 100,000リクエスト/日、CPU 10 ms/呼び出し。画像生成はActions側へ置く。 |
+| Workers Builds Free | 月3,000ビルド分。GitHub Actionsの枠とは別に管理する。 |
+| D1 Free | 読み取り500万行/日、書き込み10万行/日、合計5 GB。ただし1 DBは500 MBまで。索引の容量・更新も考慮する。日次枠超過ではクエリが失敗する。 |
+| R2 Standard | 月10 GB-month、Class A 100万回、Class B 1,000万回、外向き転送料は無料。無料分超過は従量課金であり、無料枠を停止上限と考えない。 |
+| Cloudflare Access / Zero Trust Free | 最大50ユーザー。本用途は本人1名を許可する。 |
+| GitHub Actions | 非公開リポジトリはプランごとの無料分を消費する。契約と残量を確認し、サムネイル生成を含めて見積もる。 |
+
+公式資料：
+- [Workers Builds料金](https://developers.cloudflare.com/workers/ci-cd/builds/limits-and-pricing/)
+- [Workers料金](https://developers.cloudflare.com/workers/platform/pricing/)
+- [D1料金](https://developers.cloudflare.com/d1/platform/pricing/) / [D1制限](https://developers.cloudflare.com/d1/platform/limits/)（更新2026-04-21）
+- [D1無料枠の強制適用](https://developers.cloudflare.com/changelog/post/2026-09-01-d1-free-tier-limit-enforcement/)（2026-09-01）
+- [R2料金](https://developers.cloudflare.com/r2/pricing/)（更新2026-08-07）
+- [Zero Trust料金](https://www.cloudflare.com/plans/zero-trust-services/)
+- [GitHub Actions料金](https://docs.github.com/en/billing/concepts/product-billing/github-actions)
+
+クラウド資源作成・公開・課金設定・リモート書き込みの前に、対象、設定、dry-run結果、費用見込みを提示して承認を得る。
+無料運用できるとは、実データ容量・索引・実行時間を計測するまで断定しない。
+
+## 運用開始前に確認すること
+
+- 記事の解釈は[確認済みのvault形式](docs/vault-format.md)に従う。形式を変更した場合は読み取り処理も更新する。
+- 対象ブランチはmain。記事・索引・添付の規模を再測定し、現在の無料枠の残量と比較する。
+- ユーザーが正本リポジトリにpush通知を設定し、閲覧アプリ側で自動同期を有効化する。
+- Cloudflareの契約・残量、`m43d4k.fyi` のゾーン状態、Accessで許可する本人ID。
+
+## 現在の実装状態
+
+- UI、読み取りAPI、認証、実vaultの解析、サムネイル生成、同期エンジン、設定手順とworkflow例を実装。
+- `npm run demo` は合成データのみを一時領域に保存し、127.0.0.1で閲覧できる。
+- 2026-09-30のローカル検査で209記事を解析。添付原本約23.6 MB、サムネイル約1.25 MB、索引を含むSQLite見積もり約2.45 MB。D1での実使用量・実行コストとは異なる場合がある。
+- GitHub・Cloudflareの設定と実環境での動作検証は未実施。
+
+## 最小限の受け入れ確認
+
+- スマホ幅でチャンネル選択、20件ずつの追加取得、検索とタグ絞り込みができる。
+- 通信内容に全記事・検索索引が含まれず、原寸と添付は操作前に取得されない。
+- 追加・編集・フォルダ間移動・active/archive間移動・削除を反映し、途中失敗後の再実行でも重複や添付切れが残らない。
+- 未認証ではUI・API・添付へアクセスできず、R2や別ホストからも迂回できない。
+- 正本を変更せずにD1・R2を再構築できる。日次上限や解析エラーを成功として扱わない。

@@ -1,0 +1,31 @@
+# Copy to m43d4k/fragments/.github/workflows/fragment-view-notify.yml.
+# Configure secret VIEW_DISPATCH_TOKEN and variable VIEW_REPOSITORY there.
+name: Notify Fragment View
+
+on:
+  push:
+    branches: [main]
+    paths: ['fragmentbox/**']
+
+permissions: {}
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch vault update
+        env:
+          VIEW_REPOSITORY: ${{ vars.VIEW_REPOSITORY }}
+          VIEW_DISPATCH_TOKEN: ${{ secrets.VIEW_DISPATCH_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$VIEW_REPOSITORY"
+          test -n "$VIEW_DISPATCH_TOKEN"
+          curl --fail-with-body --silent --show-error \
+            --request POST \
+            --url "https://api.github.com/repos/${VIEW_REPOSITORY}/dispatches" \
+            --header "Accept: application/vnd.github+json" \
+            --header "Authorization: Bearer ${VIEW_DISPATCH_TOKEN}" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            --header "Content-Type: application/json" \
+            --data '{"event_type":"vault-push"}'
