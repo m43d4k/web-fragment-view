@@ -1,5 +1,6 @@
 import { Marked, marked } from 'marked';
 import DOMPurify from 'dompurify';
+import type { Article } from '../shared/types';
 
 function escapeHtml(value: string): string {
   return value.replace(/[&<>"']/g, (char) => ({
@@ -33,7 +34,13 @@ function linkCards(raw: string): string | null {
     result.push(`<div class="url-source"><a href="${href}" target="_blank" rel="noopener noreferrer">${href}</a></div>`);
     const site = metadata.sitename ? `<div class="line-meta">${escapeHtml(metadata.sitename)}</div>` : '';
     const description = metadata.description ? `<div class="line-meta description">${escapeHtml(metadata.description)}</div>` : '';
-    result.push(`<div class="url-block">${site}<a class="url-title" href="${href}" target="_blank" rel="noopener noreferrer">${escapeHtml(metadata.title)}</a>${description}</div>`);
+    const images: string[] = [];
+    while (next < lines.length && /^!\[[^\]]*\]\([^)]+\)$/.test(lines[next].trimEnd())) {
+      images.push(lines[next].trimEnd());
+      next++;
+    }
+    const thumbnails = images.length ? `<div class="link-thumbnails">${marked.parse(images.join('\n\n'))}</div>` : '';
+    result.push(`<div class="url-block">${site}<a class="url-title" href="${href}" target="_blank" rel="noopener noreferrer">${escapeHtml(metadata.title)}</a>${description}${thumbnails}</div>`);
     i = next - 1;
     previous = next;
   }
@@ -42,15 +49,33 @@ function linkCards(raw: string): string | null {
   return result.join('');
 }
 
-export function safeMarkdown(source: string): string {
+export function safeMarkdown(source: string, article?: Pick<Article, 'path' | 'attachments'>, renderedAttachments = new Set<string>()): string {
   const parser = new Marked({ breaks: true });
   parser.use({ renderer: { paragraph: (token) => linkCards(token.raw) ?? false } });
   const html = parser.parse(source) as string;
   const safe = DOMPurify.sanitize(html, { USE_PROFILES: { html: true }, ALLOW_DATA_ATTR: false, FORBID_ATTR: ['style'] });
   const template = document.createElement('template');
   template.innerHTML = safe;
-  // Keep remote images accessible as explicit links, without loading them while
-  // reading. Local assets are offered by the authenticated attachment list.
+  template.content.querySelectorAll('picture, source, video, audio, iframe, object, embed, form, input, button, textarea, select, option, label').forEach((node) => node.remove());
+  // A blank line may split the preview images into their own Markdown paragraphs.
+  for (const card of template.content.querySelectorAll('.url-block')) {
+    let next = card.nextElementSibling;
+    while (next?.tagName === 'P' && next.querySelector('img') &&
+      Array.from(next.childNodes).every((node) => node.nodeType === Node.TEXT_NODE
+        ? !node.textContent?.trim() : ['IMG', 'BR'].includes(node.nodeName))) {
+      const following = next.nextElementSibling;
+      let thumbnails = card.querySelector('.link-thumbnails');
+      if (!thumbnails) {
+        thumbnails = document.createElement('div');
+        thumbnails.className = 'link-thumbnails';
+        card.appendChild(thumbnails);
+      }
+      thumbnails.appendChild(next);
+      next = following;
+    }
+  }
+  // Replace source images with new, trusted elements. Never reuse src/srcset
+  // from Markdown for inline requests; only registered R2 thumbnails may load.
   for (const image of template.content.querySelectorAll('img')) {
     const source = image.getAttribute('src') ?? '';
     if (/^https?:\/\//i.test(source)) {
@@ -60,9 +85,37 @@ export function safeMarkdown(source: string): string {
       link.target = '_blank';
       link.rel = 'noopener noreferrer';
       image.replaceWith(link);
+      continue;
+    }
+    let item: Article['attachments'][number] | undefined;
+    if (article) {
+      try {
+        const base = new URL(article.path.split('/').map(encodeURIComponent).join('/'), 'https://vault.invalid/');
+        const resolved = new URL(source, base);
+        if (resolved.origin === base.origin && !resolved.search && !resolved.hash) {
+          item = article.attachments.find((entry) => '/' + entry.sourcePath === decodeURIComponent(resolved.pathname));
+        }
+      } catch { /* An unresolvable image is not an authenticated attachment. */ }
+    }
+    if (item?.thumbnailKey && item.mime.startsWith('image/')) {
+      const link = document.createElement('a');
+      link.className = 'image-preview';
+      link.href = `/api/assets/${encodeURIComponent(item.id)}?variant=original`;
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
+      link.setAttribute('aria-label', `${item.name} の原寸を開く`);
+      const thumbnail = document.createElement('img');
+      thumbnail.src = `/api/assets/${encodeURIComponent(item.id)}?variant=thumbnail`;
+      thumbnail.alt = image.getAttribute('alt') || item.name;
+      thumbnail.setAttribute('loading', 'lazy');
+      thumbnail.setAttribute('decoding', 'async');
+      link.appendChild(thumbnail);
+      image.replaceWith(link);
+      renderedAttachments.add(item.id);
+    } else {
+      image.remove();
     }
   }
-  template.content.querySelectorAll('img, picture, source, video, audio, iframe, object, embed, form, input, button, textarea, select, option, label').forEach((node) => node.remove());
   const textNodes: Text[] = [];
   const walker = document.createTreeWalker(template.content, NodeFilter.SHOW_TEXT);
   while (walker.nextNode()) textNodes.push(walker.currentNode as Text);

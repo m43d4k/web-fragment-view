@@ -18,7 +18,7 @@ export function attachmentMarkup(article: Article): string {
       const image = item.mime.startsWith('image/') && item.thumbnailKey
         ? `<img src="${assetUrl(item.id, 'thumbnail')}" alt="${escapeHtml(item.name)}" loading="lazy" />`
         : '<span class="file-icon" aria-hidden="true">▧</span>';
-      return `<li><a class="attachment" href="${assetUrl(item.id, 'original')}" target="_blank" rel="noopener noreferrer" aria-label="${escapeHtml(item.name)} を開く">
+      return `<li><a class="attachment${item.thumbnailKey ? ' attachment-image' : ''}" href="${assetUrl(item.id, 'original')}" target="_blank" rel="noopener noreferrer" aria-label="${escapeHtml(item.name)} を開く">
         ${image}<span class="attachment-name">${escapeHtml(item.name)}</span><span class="open-icon" aria-hidden="true">↗</span>
       </a></li>`;
     }).join('')}</ul>

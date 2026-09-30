@@ -24,6 +24,41 @@ describe('safeMarkdown', () => {
     expect(html).not.toContain('document.body');
   });
 
+  it.each(['\n', '\n\n'])('renders a matched local image after URL metadata with separator %j as a lazy thumbnail', (separator) => {
+    const article = {
+      path: 'active/notes/1.md',
+      attachments: [{
+        id: 'image/test', name: 'test.png', sourcePath: 'assets/test.png', mime: 'image/png', size: 4,
+        originalKey: 'private/original', thumbnailKey: 'private/thumb',
+      }],
+    } as Article;
+    const renderedAttachments = new Set<string>();
+    const html = safeMarkdown(`https://example.com\ntitle: Example${separator}![preview](../../assets/test.png)`, article, renderedAttachments);
+    const template = document.createElement('template');
+    template.innerHTML = html;
+    const card = template.content.querySelector('.url-block');
+    const image = card?.querySelector<HTMLImageElement>('img');
+
+    expect(image?.getAttribute('src')).toBe('/api/assets/image%2Ftest?variant=thumbnail');
+    expect(image?.getAttribute('loading')).toBe('lazy');
+    expect(image?.parentElement?.getAttribute('href')).toBe('/api/assets/image%2Ftest?variant=original');
+    expect(renderedAttachments).toEqual(new Set(['image/test']));
+  });
+
+  it('does not fetch unmatched local images and leaves fenced image syntax literal', () => {
+    const article = {
+      path: 'active/notes/1.md',
+      attachments: [{ id: 'image/test', name: 'test.png', sourcePath: 'assets/test.png', mime: 'image/png', size: 4 }],
+    } as Article;
+    const html = safeMarkdown('![unmatched](../../assets/private.png)\n\n```markdown\n![fenced](../../assets/test.png)\n```', article, new Set());
+    const template = document.createElement('template');
+    template.innerHTML = html;
+
+    expect(template.content.querySelector('img')).toBeNull();
+    expect(template.content.querySelector('pre')?.textContent).toContain('![fenced](../../assets/test.png)');
+    expect(html).not.toContain('/api/assets/');
+  });
+
   it('keeps ordinary Markdown formatting and same-origin article links', () => {
     const html = safeMarkdown('## 見出し\n\n本文と [記事](./other-article)');
     expect(html).toContain('<h2>見出し</h2>');

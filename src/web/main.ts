@@ -245,23 +245,22 @@ function dateLabel(value: string): string {
 function articleMarkup(article: Article): string {
   const expanded = state.expandedIds.has(article.id);
   const detail = state.fullArticles.get(article.id);
-  const displayed = detail ?? article;
+  const displayed = expanded ? detail ?? article : article;
   const isLoadingDetail = state.loadingDetails.has(article.id);
   const detailError = state.detailErrors.get(article.id);
-  const bodyHtml = safeMarkdown(displayed.body);
+  const renderedAttachments = new Set<string>();
+  const bodyHtml = safeMarkdown(displayed.body, displayed, renderedAttachments);
   let body = `<div class="article-body${expanded ? ' expanded' : ''}">${bodyHtml}</div>`;
-  if (article.truncated && !detail) {
-    body += `<button class="text-action" data-action="read-more" data-id="${escapeHtml(article.id)}" ${isLoadingDetail ? 'disabled' : ''}>${isLoadingDetail ? '本文を読み込み中…' : '続きを読む'}</button>`;
-  } else if (!expanded) {
-    body += `<button class="text-action" data-action="expand" data-id="${escapeHtml(article.id)}">続きを読む</button>`;
-  } else {
+  if (article.truncated && !expanded) {
+    body += `<button class="text-action" data-action="${detail ? 'expand' : 'read-more'}" data-id="${escapeHtml(article.id)}" ${isLoadingDetail ? 'disabled' : ''}>${isLoadingDetail ? '本文を読み込み中…' : '続きを読む'}</button>`;
+  } else if (expanded) {
     body += `<button class="text-action" data-action="collapse" data-id="${escapeHtml(article.id)}">折りたたむ</button>`;
   }
   if (detailError) body += `<div class="inline-error" role="alert">${escapeHtml(detailError)} <button data-action="read-more" data-id="${escapeHtml(article.id)}">再試行</button></div>`;
   return `<article class="post" data-id="${escapeHtml(article.id)}" aria-label="${escapeHtml(article.title || '無題')}">
     <div class="post-content">
       <header class="post-header"><time datetime="${escapeHtml(article.createdAt)}">${escapeHtml(dateLabel(article.createdAt))}</time></header>
-      ${body}${attachmentMarkup(displayed)}
+      ${body}${attachmentMarkup({ ...displayed, attachments: displayed.attachments.filter((item) => !renderedAttachments.has(item.id)) })}
     </div>
   </article>`;
 }

@@ -39,3 +39,24 @@ it('keeps reading position, loaded thumbnails, and the search draft when the nex
   await vi.waitFor(() => expect((fetch as ReturnType<typeof vi.fn>).mock.calls.some(([url]) => String(url).includes('tag=tag'))).toBe(true));
   vi.unstubAllGlobals();
 });
+
+it('does not repeat a thumbnail from the article body in the attachment list', async () => {
+  document.body.innerHTML = '<div id="app"></div>';
+  const article: Article = {
+    id: 'linked-image', path: 'active/notes/linked-image.md', area: 'active', folder: 'notes', title: 'linked-image',
+    createdAt: '2026-09-01T00:00:00.000Z', updatedAt: '2026-09-01T00:00:00.000Z',
+    body: 'https://example.com\ntitle: Example\n\n![preview](../../assets/test.png)', tags: [], truncated: false,
+    attachments: [{ id: 'image', name: 'test.png', sourcePath: 'assets/test.png', mime: 'image/png', size: 4, originalKey: 'originals/image', thumbnailKey: 'thumbs/image.webp' }],
+  };
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => Response.json({
+    items: url.startsWith('/api/articles') ? [article] : [], revision: 1, nextCursor: null,
+  })));
+  vi.resetModules();
+  await import('../src/web/main');
+  await vi.waitFor(() => expect(document.querySelectorAll('.post')).toHaveLength(1));
+
+  const post = document.querySelector('.post')!;
+  expect(post.querySelectorAll('.url-block img')).toHaveLength(1);
+  expect(post.querySelector('.attachment')).toBeNull();
+  vi.unstubAllGlobals();
+});

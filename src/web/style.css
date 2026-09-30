@@ -85,7 +85,7 @@ button:focus-visible, input:focus-visible, a:focus-visible { outline: 2px solid 
 @keyframes appear { from { opacity: .6; transform: translateY(3px); } to { opacity: 1; transform: translateY(0); } }
 .post-content { min-width: 0; flex: 1; }
 .post-header time { color: #8a8c97; font-size: 11px; }
-.article-body { max-height: 156px; overflow: hidden; margin-top: 12px; color: #c6c7cf; font-size: 13px; line-height: 1.8; overflow-wrap: anywhere; mask-image: linear-gradient(to bottom, #000 80%, transparent); }
+.article-body { margin-top: 12px; color: #c6c7cf; font-size: 13px; line-height: 1.8; overflow-wrap: anywhere; }
 .article-body.expanded { max-height: none; overflow: visible; mask-image: none; }
 .article-body > :first-child { margin-top: 0; }
 .article-body > :last-child { margin-bottom: 0; }
@@ -100,7 +100,7 @@ button:focus-visible, input:focus-visible, a:focus-visible { outline: 2px solid 
 .article-body pre code { padding: 0; background: transparent; color: #d1d2da; }
 .article-body a { color: #b9a4ff; text-decoration: underline; text-underline-offset: 2px; }
 .article-body .url-source { margin: 0 0 5px; font-size: 11px; overflow-wrap: anywhere; }
-.article-body .url-block { margin: 0 0 12px; padding: 10px 12px; border-left: 3px solid #7863b4; border-radius: 0 6px 6px 0; background: #24232c; }
+.article-body .url-block { width: 100%; max-width: 520px; margin: 0 0 12px; padding: 10px 12px; border-left: 3px solid #7863b4; border-radius: 0 6px 6px 0; background: #24232c; }
 .article-body .url-block .line-meta { color: #999ba7; font-size: 11px; }
 .article-body .url-block .url-title { display: block; color: #d6c8ff; font-size: 13px; font-weight: 600; }
 .article-body .url-block .description { margin-top: 4px; line-height: 1.5; }
@@ -160,7 +160,7 @@ button:focus-visible, input:focus-visible, a:focus-visible { outline: 2px solid 
   .feed-scroll { width: 100%; padding: 4px 13px max(28px, env(safe-area-inset-bottom)); }
   .post { padding: 16px 1px 19px; }
   .post-header time { font-size: 9px; }
-  .article-body { max-height: 146px; margin-top: 10px; font-size: 12px; }
+  .article-body { margin-top: 10px; font-size: 12px; }
   .article-body.expanded { max-height: none; }
   .attachments li { max-width: 100%; }
   .attachment { max-width: min(250px, calc(100vw - 100px)); }
@@ -170,3 +170,14 @@ button:focus-visible, input:focus-visible, a:focus-visible { outline: 2px solid 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }
+
+/* Link images occupy the card body, like the PC viewer, rather than a file icon. */
+.link-thumbnails { display: grid; gap: 8px; margin-top: 10px; }
+.link-thumbnails p { margin: 0; }
+.image-preview { display: block; width: fit-content; max-width: 100%; }
+.image-preview img { display: block; width: auto; height: auto; max-width: min(100%, 320px); max-height: 320px; border-radius: 6px; object-fit: contain; }
+.attachments li:has(.attachment-image) { max-width: min(100%, 320px); }
+.attachment-image { display: block; width: fit-content; min-width: 0; max-width: 320px; padding: 0; overflow: hidden; }
+.attachment-image img { display: block; width: auto; height: auto; max-width: 100%; max-height: 320px; border-radius: 6px 6px 0 0; object-fit: contain; }
+.attachment-image .attachment-name { display: block; padding: 7px 10px; }
+.attachment-image .open-icon { display: none; }
