@@ -66,11 +66,8 @@ button:focus-visible, input:focus-visible, a:focus-visible { outline: 2px solid 
 .topbar-spacer { flex: 1; }
 .vault-status { display: flex; align-items: center; gap: 7px; color: #8f929e; font-size: 11px; }
 .vault-status i { width: 6px; height: 6px; border-radius: 50%; background: var(--green); box-shadow: 0 0 8px #50c89a66; }
-.feed-toolbar { display: flex; min-height: 145px; flex: 0 0 auto; align-items: center; justify-content: space-between; gap: 24px; padding: 25px max(32px, calc((100vw - 1160px) / 2)); border-bottom: 1px solid #252730; background: radial-gradient(ellipse at 5% 0%, #8e78d517, transparent 46%), #1c1e25; }
-.feed-toolbar .eyebrow { color: #8e899d; }
-.feed-toolbar h2 { margin: 9px 0 4px; color: #f0f0f4; font-size: 23px; font-weight: 700; letter-spacing: -.035em; }
-.feed-subtitle { margin: 0; color: #8f919c; font-size: 12px; }
-.search-form { display: flex; width: min(280px, 35vw); height: 39px; flex: 0 0 auto; overflow: hidden; border: 1px solid #363842; border-radius: 8px; background: #17191f; }
+.feed-toolbar { display: flex; flex: 0 0 auto; align-items: center; justify-content: center; padding: 10px 32px; border-bottom: 1px solid #252730; background: radial-gradient(ellipse at 5% 0%, #8e78d517, transparent 46%), #1c1e25; }
+.search-form { display: flex; width: min(100%, 836px); height: 39px; flex: 0 0 auto; overflow: hidden; border: 1px solid #363842; border-radius: 8px; background: #17191f; }
 .search-form:focus-within { border-color: #8470bf; box-shadow: 0 0 0 3px #a78bfa18; }
 .search-form input { width: 100%; min-width: 0; padding: 0 12px; border: 0; outline: 0; background: transparent; color: var(--text); font-size: 12px; }
 .search-form input::placeholder { color: #737580; }
@@ -152,8 +149,7 @@ button:focus-visible, input:focus-visible, a:focus-visible { outline: 2px solid 
   .current-channel { gap: 7px; }
   .current-channel strong { max-width: 48vw; font-size: 13px; }
   .vault-status { font-size: 0; }.vault-status i { width: 7px; height: 7px; }
-  .feed-toolbar { min-height: 132px; align-items: flex-start; flex-direction: column; justify-content: center; gap: 14px; padding: 18px 18px 17px; }
-  .feed-toolbar h2 { margin-top: 6px; font-size: 20px; }
+  .feed-toolbar { padding: 8px 14px; }
   .search-form { width: 100%; height: 36px; }
   .search-form input { font-size: 12px; }
   .active-filters { gap: 5px; padding: 8px 14px; }

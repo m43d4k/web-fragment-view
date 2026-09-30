@@ -310,7 +310,7 @@ function render(): void {
         <div class="current-channel"><span class="channel-hash">#</span><strong>${escapeHtml(state.folder ?? 'すべての記事')}</strong><span class="area-badge">${state.area === 'active' ? '進行中' : 'アーカイブ'}</span></div>
         <span class="topbar-spacer"></span><span class="vault-status"><i></i>プライベート</span>
       </header>
-      <section class="feed-toolbar"><div><p class="eyebrow">FRAGMENTBOX / ${state.area.toUpperCase()}</p><h2>${escapeHtml(state.folder ?? 'すべての記事')}</h2><p class="feed-subtitle">${state.tag ? `#${escapeHtml(state.tag)} の記事` : state.query ? `「${escapeHtml(state.query)}」の検索結果` : 'メモや記録を時系列で表示'}</p></div>
+      <section class="feed-toolbar" aria-label="記事検索">
         <form class="search-form" id="search-form"><label class="sr-only" for="search-input">記事を検索</label><input id="search-input" name="q" type="search" value="${escapeHtml(state.query)}" placeholder="記事を検索…" autocomplete="off" /><button type="submit" aria-label="検索">⌕</button></form>
       </section>
       ${filtered ? `<div class="active-filters">${state.folder ? `<button data-action="clear-folder"># ${escapeHtml(state.folder)} <span>×</span></button>` : ''}${state.tag ? `<button data-action="clear-tag"># ${escapeHtml(state.tag)} <span>×</span></button>` : ''}${state.query ? `<button data-action="clear-query">検索: ${escapeHtml(state.query)} <span>×</span></button>` : ''}<button class="clear-all" data-action="clear-filters">条件をクリア</button></div>` : ''}
