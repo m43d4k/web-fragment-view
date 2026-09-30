@@ -7,7 +7,7 @@ it('keeps reading position, loaded thumbnails, and the search draft when the nex
   const article = (id: string): Article => ({
     id, path: `active/notes/${id}.md`, area: 'active', folder: 'notes', title: id,
     createdAt: '2026-09-01T00:00:00.000Z', updatedAt: '2026-09-01T00:00:00.000Z',
-    body: '短いメモ', tags: [], truncated: false,
+    body: '短い #tag メモ', tags: ['tag'], truncated: false,
     attachments: [{ id: 'image', name: 'test.png', sourcePath: 'assets/test.png', mime: 'image/png', size: 4, originalKey: 'originals/image', thumbnailKey: 'thumbs/image.webp' }],
   });
   let articlesRequest = 0;
@@ -18,6 +18,11 @@ it('keeps reading position, loaded thumbnails, and the search draft when the nex
   }));
   await import('../src/web/main');
   await vi.waitFor(() => expect(document.querySelectorAll('.post')).toHaveLength(1));
+  const post = document.querySelector<HTMLElement>('.post')!;
+  expect(post.getAttribute('aria-label')).toBe('1');
+  expect(post.querySelector('.avatar, h3, .post-tags')).toBeNull();
+  expect(post.querySelector('.post-header time')).not.toBeNull();
+  expect(post.querySelectorAll('[data-action="select-tag"]')).toHaveLength(1);
   const scroll = document.querySelector<HTMLElement>('#feed-scroll')!;
   scroll.scrollTop = 450;
   const image = document.querySelector('.attachment img');
@@ -30,5 +35,7 @@ it('keeps reading position, loaded thumbnails, and the search draft when the nex
   expect(document.querySelector('.attachment img')).toBe(image);
   expect(document.querySelector<HTMLInputElement>('#search-input')!.value).toBe('入力途中');
   expect(document.activeElement?.id).toBe('search-input');
+  document.querySelector<HTMLButtonElement>('.post [data-action="select-tag"]')!.click();
+  await vi.waitFor(() => expect((fetch as ReturnType<typeof vi.fn>).mock.calls.some(([url]) => String(url).includes('tag=tag'))).toBe(true));
   vi.unstubAllGlobals();
 });

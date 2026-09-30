@@ -248,7 +248,6 @@ function articleMarkup(article: Article): string {
   const displayed = detail ?? article;
   const isLoadingDetail = state.loadingDetails.has(article.id);
   const detailError = state.detailErrors.get(article.id);
-  const tags = article.tags.map((name) => `<button class="inline-tag" data-action="select-tag" data-tag="${escapeHtml(name)}"># ${escapeHtml(name)}</button>`).join('');
   const bodyHtml = safeMarkdown(displayed.body);
   let body = `<div class="article-body${expanded ? ' expanded' : ''}">${bodyHtml}</div>`;
   if (article.truncated && !detail) {
@@ -259,13 +258,10 @@ function articleMarkup(article: Article): string {
     body += `<button class="text-action" data-action="collapse" data-id="${escapeHtml(article.id)}">折りたたむ</button>`;
   }
   if (detailError) body += `<div class="inline-error" role="alert">${escapeHtml(detailError)} <button data-action="read-more" data-id="${escapeHtml(article.id)}">再試行</button></div>`;
-  return `<article class="post" aria-labelledby="title-${escapeHtml(article.id)}">
-    <div class="avatar" aria-hidden="true">${escapeHtml((article.title || '記').slice(0, 1))}</div>
+  return `<article class="post" data-id="${escapeHtml(article.id)}" aria-label="${escapeHtml(article.title || '無題')}">
     <div class="post-content">
-      <header class="post-header"><h3 id="title-${escapeHtml(article.id)}">${escapeHtml(article.title || '無題')}</h3><time datetime="${escapeHtml(article.createdAt)}">${escapeHtml(dateLabel(article.createdAt))}</time></header>
-      <div class="post-meta"><span class="folder-label"># ${escapeHtml(article.folder)}</span>${article.updatedAt !== article.createdAt ? `<span>更新 ${escapeHtml(dateLabel(article.updatedAt))}</span>` : ''}</div>
+      <header class="post-header"><time datetime="${escapeHtml(article.createdAt)}">${escapeHtml(dateLabel(article.createdAt))}</time></header>
       ${body}${attachmentMarkup(displayed)}
-      ${tags ? `<div class="post-tags">${tags}</div>` : ''}
     </div>
   </article>`;
 }
@@ -279,7 +275,7 @@ function render(): void {
   const searchDraft = renderedQuery === state.query ? searchInput?.value : undefined;
   const searchFocused = document.activeElement === searchInput;
   const selection = searchFocused ? [searchInput?.selectionStart ?? 0, searchInput?.selectionEnd ?? 0] : null;
-  const oldPosts = new Map(Array.from(app.querySelectorAll<HTMLElement>('.post')).map(post => [post.getAttribute('aria-labelledby'), post]));
+  const oldPosts = new Map(Array.from(app.querySelectorAll<HTMLElement>('.post')).map(post => [post.dataset.id, post]));
   const channelRows = state.channels.items.map((channel) => `<button class="channel-row${state.folder === channel.folder ? ' selected' : ''}" data-action="select-folder" data-folder="${escapeHtml(channel.folder)}">
     <span class="channel-hash">#</span><span class="channel-name">${escapeHtml(channel.folder)}</span><span class="channel-count">${channel.count}</span>
   </button>`).join('');
@@ -334,7 +330,7 @@ function render(): void {
   // Reuse unchanged cards before attaching the fragment, so loaded thumbnails
   // are not downloaded again whenever a request or filter control updates.
   for (const post of template.content.querySelectorAll<HTMLElement>('.post')) {
-    const old = oldPosts.get(post.getAttribute('aria-labelledby'));
+    const old = oldPosts.get(post.dataset.id);
     if (old?.isEqualNode(post)) post.replaceWith(old);
   }
   app.replaceChildren(template.content);

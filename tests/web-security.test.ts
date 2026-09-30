@@ -29,6 +29,54 @@ describe('safeMarkdown', () => {
     expect(html).toContain('<h2>見出し</h2>');
     expect(html).toContain('href="./other-article"');
   });
+
+  it('keeps tags at their source positions and leaves code and links untouched', () => {
+    const html = safeMarkdown('前 #日本語_1 後 [#link](https://example.com/#anchor) `#inline`\n#next\n\n```text\n#fenced\n```');
+    const template = document.createElement('template');
+    template.innerHTML = html;
+    const tag = template.content.querySelector<HTMLButtonElement>('[data-action="select-tag"]');
+    expect(tag?.textContent).toBe('#日本語_1');
+    expect(tag?.dataset.tag).toBe('日本語_1');
+    expect(tag?.parentElement?.textContent).toContain('前 #日本語_1 後');
+    expect(template.content.querySelectorAll('[data-action]')).toHaveLength(2);
+    expect(tag?.parentElement?.querySelector('br + button')?.textContent).toBe('#next');
+    expect(template.content.querySelector('a')?.textContent).toBe('#link');
+    expect(template.content.querySelector('code')?.textContent).toBe('#inline');
+    expect(template.content.querySelector('pre')?.textContent).toContain('#fenced');
+  });
+
+  it('renders a contiguous URL metadata group as a safe link card', () => {
+    const html = safeMarkdown('https://example.com/a?x=1&y=2\ntitle: <img src=x onerror=alert(1)> **Title**\nsitename: Site\ndescription: A & B\n\n#tag');
+    const template = document.createElement('template');
+    template.innerHTML = html;
+    const source = template.content.querySelector<HTMLAnchorElement>('.url-source a');
+    const card = template.content.querySelector('.url-block');
+    expect(source?.textContent).toBe('https://example.com/a?x=1&y=2');
+    expect(source?.getAttribute('href')).toBe('https://example.com/a?x=1&y=2');
+    expect(card?.querySelector('.url-title')?.textContent).toBe('<img src=x onerror=alert(1)> **Title**');
+    expect(card?.querySelector('.description')?.textContent).toBe('A & B');
+    expect(card?.querySelector('.line-meta')?.textContent).toBe('Site');
+    expect(card?.querySelector('img, [onerror]')).toBeNull();
+    expect(template.content.querySelector('[data-tag="tag"]')).not.toBeNull();
+  });
+
+  it('recognizes cards after ordinary text and Markdown hard breaks', () => {
+    const html = safeMarkdown('前置き  \nhttps://one.example  \ntitle: One  \n次の行\nhttps://two.example\ntitle: Two');
+    const template = document.createElement('template');
+    template.innerHTML = html;
+    expect([...template.content.querySelectorAll('.url-title')].map((link) => link.textContent)).toEqual(['One', 'Two']);
+    expect(template.content.textContent).toContain('前置き');
+    expect(template.content.textContent).toContain('次の行');
+  });
+
+  it('does not turn fenced metadata or forged actions into controls', () => {
+    const html = safeMarkdown('```\nhttps://example.com\ntitle: Hidden\n#inside\n```\n\n<button data-action="select-tag" data-tag="evil">#evil</button>');
+    const template = document.createElement('template');
+    template.innerHTML = html;
+    expect(template.content.querySelector('.url-block')).toBeNull();
+    expect(template.content.querySelector('[data-action]')).toBeNull();
+    expect(template.content.querySelector('pre')?.textContent).toContain('title: Hidden');
+  });
 });
 
 describe('attachmentMarkup', () => {
