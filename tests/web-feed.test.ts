@@ -89,3 +89,37 @@ it('toggles multiple tags, switches AND/OR, and clears one selection without los
   expect(calls.at(-1)?.searchParams.has('cursor')).toBe(false);
   vi.unstubAllGlobals();
 });
+
+it('reloads folder tags, clears prior tag selections, and ignores late responses from the previous folder', async () => {
+  document.body.innerHTML = '<div id="app"></div>';
+  let finishA!: (value: Response) => void;
+  const articleRequests: URL[] = [];
+  const page = (items: unknown[]) => Response.json({ items, revision: 1, nextCursor: null });
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+    const parsed = new URL(url, 'https://viewer.example');
+    if (parsed.pathname === '/api/channels') return page(['A', 'B'].map(folder => ({ folder, area: 'active', count: 1 })));
+    if (parsed.pathname === '/api/tags') {
+      if (parsed.searchParams.get('folder') === 'A') return new Promise<Response>(resolve => { finishA = resolve; });
+      return page([{ name: parsed.searchParams.get('folder') === 'B' ? 'B-only' : 'all', count: 1 }]);
+    }
+    articleRequests.push(parsed);
+    return page([]);
+  }));
+  vi.resetModules();
+  await import('../src/web/main');
+  await vi.waitFor(() => expect(document.querySelector('.tag-option[data-tag="all"]')).not.toBeNull());
+  const click = (selector: string) => document.querySelector<HTMLButtonElement>(selector)!.click();
+  click('.tag-option[data-tag="all"]');
+  click('[data-action="select-folder"][data-folder="A"]');
+  await vi.waitFor(() => expect(finishA).toBeTypeOf('function'));
+  expect(document.querySelectorAll('.tag-option')).toHaveLength(0);
+  expect(articleRequests.at(-1)?.searchParams.getAll('tag')).toEqual([]);
+  click('[data-action="select-folder"][data-folder="B"]');
+  await vi.waitFor(() => expect(document.querySelector('.tag-option[data-tag="B-only"]')).not.toBeNull());
+  finishA(page([{ name: 'A-only', count: 1 }]));
+  await new Promise(resolve => setTimeout(resolve, 0));
+  expect(document.querySelector('.tag-option[data-tag="A-only"]')).toBeNull();
+  click('[data-action="clear-folder"]');
+  await vi.waitFor(() => expect(document.querySelector('.tag-option[data-tag="all"]')).not.toBeNull());
+  vi.unstubAllGlobals();
+});

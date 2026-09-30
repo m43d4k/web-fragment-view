@@ -30,6 +30,43 @@ beforeAll(async () => {
 afterAll(async () => { await mf?.dispose(); });
 
 describe('read API', () => {
+  it('scopes tag counts by area and optional folder, and binds paginated cursors to that scope', async () => {
+    const db = env.DB;
+    const fixtures = [
+      ['tag-a', 'active', 'tag-scope', ['shared', 'only-a']],
+      ['tag-b', 'active', 'tag-scope', ['shared']],
+      ['tag-c', 'active', 'elsewhere', ['shared', 'only-other']],
+      ['tag-d', 'archive', 'tag-scope', ['shared', 'only-archive']],
+    ] as const;
+    try {
+      for (const [id, area, folder, tags] of fixtures) {
+        await db.prepare('INSERT INTO articles (id,path,area,folder,title,created_at,updated_at,body,tags_json,attachments_json,hash,search_text,search_tokens) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)')
+          .bind(id, `${area}/${folder}/${id}.md`, area, folder, id, '2026-08-01T00:00:00.000Z', '2026-08-01T00:00:00.000Z', id,
+            JSON.stringify(tags), '[]', id, id, id).run();
+      }
+      const scoped = await (await request('/api/tags?area=active&folder=tag-scope')).json() as any;
+      expect(scoped.items).toEqual([{ name: 'only-a', count: 1 }, { name: 'shared', count: 2 }]);
+      const all = await (await request('/api/tags?area=active')).json() as any;
+      expect(all.items).toContainEqual({ name: 'only-other', count: 1 });
+      expect(all.items.find((item: any) => item.name === 'shared').count).toBe(3);
+      const empty = await (await request('/api/tags?area=active&folder=missing-folder')).json() as any;
+      expect(empty.items).toEqual([]);
+
+      const many = Array.from({ length: 52 }, (_, i) => `page-${String(i).padStart(2, '0')}`);
+      await db.prepare('INSERT INTO articles (id,path,area,folder,title,created_at,updated_at,body,tags_json,attachments_json,hash,search_text,search_tokens) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)')
+        .bind('tag-pages', 'active/tag-pages/article.md', 'active', 'tag-pages', 'pages', '2026-08-01T00:00:00.000Z', '2026-08-01T00:00:00.000Z', 'pages', JSON.stringify(many), '[]', 'tag-pages', 'pages', 'pages').run();
+      const first = await (await request('/api/tags?area=active&folder=tag-pages')).json() as any;
+      expect(first.items).toHaveLength(50);
+      expect(first.nextCursor).toBeTruthy();
+      const cursor = encodeURIComponent(first.nextCursor);
+      const second = await (await request(`/api/tags?area=active&folder=tag-pages&cursor=${cursor}`)).json() as any;
+      expect(second.items).toHaveLength(2);
+      expect((await request(`/api/tags?area=active&folder=tag-scope&cursor=${cursor}`)).status).toBe(400);
+    } finally {
+      for (const [id] of fixtures) await db.prepare('DELETE FROM articles WHERE id = ?').bind(id).run();
+      await db.prepare('DELETE FROM articles WHERE id = ?').bind('tag-pages').run();
+    }
+  });
   it('caps pages at 20 and follows a stable cursor without overlap', async () => {
     const response = await request('/api/articles?area=active&limit=999');
     expect(response.status).toBe(200);

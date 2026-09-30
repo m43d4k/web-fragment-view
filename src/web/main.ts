@@ -113,9 +113,17 @@ function resetFeed(): void {
   void loadFeed(true);
 }
 
+function selectFolder(folder: string | null): void {
+  state.folder = folder;
+  state.selectedTags.clear();
+  state.tags = emptyMetadata();
+  resetFeed();
+  void loadMetadata('tags', true);
+}
+
 async function loadMetadata<T>(kind: 'channels' | 'tags', reset = false): Promise<void> {
   const metadata = state[kind] as Metadata<T>;
-  if (metadata.loading || (!reset && metadata.cursor === null && metadata.items.length > 0)) return;
+  if (!reset && (metadata.loading || (metadata.cursor === null && metadata.items.length > 0))) return;
   if (reset) {
     metadataControllers = metadataControllers.filter((entry) => {
       if (entry.kind === kind) { entry.controller.abort(); return false; }
@@ -130,22 +138,26 @@ async function loadMetadata<T>(kind: 'channels' | 'tags', reset = false): Promis
   render();
   const controller = new AbortController();
   const requestedArea = state.area;
+  const requestedFolder = kind === 'tags' ? state.folder : null;
+  const isCurrent = () => !controller.signal.aborted && state[kind] === metadata && requestedArea === state.area
+    && (kind !== 'tags' || requestedFolder === state.folder);
   metadataControllers.push({ kind, area: requestedArea, controller });
-  const params = { area: state.area, cursor: metadata.cursor };
+  const params = { area: requestedArea, folder: requestedFolder, cursor: metadata.cursor };
   try {
     const page = await request<Page<T>>(`/api/${kind}${queryString(params)}`, controller.signal);
-    if (requestedArea !== state.area) return;
+    if (!isCurrent()) return;
     metadata.items = [...metadata.items, ...page.items];
     metadata.cursor = page.nextCursor;
   } catch (error) {
-    if (requestedArea !== state.area) return;
+    if (!isCurrent()) return;
     if (error instanceof RevisionMismatchError) {
       metadata.items = [];
       metadata.cursor = null;
       metadata.error = '一覧が更新されました。最新のフォルダ・タグを再取得してください。';
     } else if (!(error instanceof DOMException && error.name === 'AbortError')) metadata.error = errorMessage(error);
   } finally {
-    if (requestedArea === state.area) {
+    metadataControllers = metadataControllers.filter(entry => entry.controller !== controller);
+    if (isCurrent()) {
       metadata.loading = false;
       render();
     }
@@ -370,9 +382,8 @@ app.addEventListener('click', (event) => {
     void loadMetadata('tags', true);
   } else if (action === 'select-folder') {
     const restoreFocus = state.channelDrawerOpen;
-    state.folder = target.dataset.folder || null;
     state.channelDrawerOpen = false;
-    resetFeed();
+    selectFolder(target.dataset.folder || null);
     if (restoreFocus) focusMenuButton();
   } else if (action === 'select-tag') {
     const tag = target.dataset.tag;
@@ -387,9 +398,9 @@ app.addEventListener('click', (event) => {
     state.selectedTags.delete(target.dataset.tag ?? '');
     resetFeed();
   }
-  else if (action === 'clear-folder') { state.folder = null; resetFeed(); }
+  else if (action === 'clear-folder') selectFolder(null);
   else if (action === 'clear-query') { state.query = ''; resetFeed(); }
-  else if (action === 'clear-filters') { state.folder = null; state.selectedTags.clear(); state.query = ''; resetFeed(); }
+  else if (action === 'clear-filters') { state.query = ''; selectFolder(null); }
   else if (action === 'load-channels') void loadMetadata('channels');
   else if (action === 'load-tags') void loadMetadata('tags');
   else if (action === 'load-more') void loadFeed();
