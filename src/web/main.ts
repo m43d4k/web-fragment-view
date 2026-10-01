@@ -10,7 +10,7 @@ interface Metadata<T> {
   error: string | null;
 }
 
-interface State {
+interface State extends FeedState {
   area: Area;
   folder: string | null;
   selectedTags: Set<string>;
@@ -20,17 +20,23 @@ interface State {
   dateTo: string;
   channels: Metadata<Channel>;
   tags: Metadata<Tag>;
+  searchOpen: boolean;
+  channelDrawerOpen: boolean;
+}
+
+interface FeedState {
   articles: Article[];
   cursor: string | null;
   loadingFeed: boolean;
   feedError: string | null;
   revisionMismatch: boolean;
   feedGeneration: number;
-  channelDrawerOpen: boolean;
   expandedIds: Set<string>;
   loadingDetails: Set<string>;
   detailErrors: Map<string, string>;
   fullArticles: Map<string, Article>;
+  controller: AbortController | null;
+  resetScroll: boolean;
 }
 
 const state: State = {
@@ -43,18 +49,29 @@ const state: State = {
   dateTo: '',
   channels: emptyMetadata(),
   tags: emptyMetadata(),
-  articles: [],
-  cursor: null,
-  loadingFeed: false,
-  feedError: null,
-  revisionMismatch: false,
-  feedGeneration: 0,
+  searchOpen: false,
   channelDrawerOpen: false,
-  expandedIds: new Set(),
-  loadingDetails: new Set(),
-  detailErrors: new Map(),
-  fullArticles: new Map(),
+  ...emptyFeed(),
 };
+
+function emptyFeed(): FeedState {
+  return {
+    articles: [],
+    cursor: null,
+    loadingFeed: false,
+    feedError: null,
+    revisionMismatch: false,
+    feedGeneration: 0,
+    expandedIds: new Set(),
+    loadingDetails: new Set(),
+    detailErrors: new Map(),
+    fullArticles: new Map(),
+    controller: null,
+    resetScroll: false,
+  };
+}
+
+const searchFeed = emptyFeed();
 
 function emptyMetadata<T>(): Metadata<T> {
   return { items: [], cursor: null, loading: false, error: null };
@@ -63,9 +80,7 @@ function emptyMetadata<T>(): Metadata<T> {
 const app = document.querySelector<HTMLDivElement>('#app');
 if (!app) throw new Error('アプリの表示領域がありません。');
 
-let feedController: AbortController | null = null;
 let metadataControllers: Array<{ kind: 'channels' | 'tags'; area: Area; controller: AbortController }> = [];
-let resetScrollOnRender = false;
 let renderedQuery: string | null = null;
 
 function escapeHtml(value: string): string {
@@ -101,20 +116,33 @@ function queryString(params: Record<string, string | string[] | null>): string {
   return result ? `?${result}` : '';
 }
 
+function resetOneFeed(target: FeedState): void {
+  target.resetScroll = true;
+  target.controller?.abort();
+  target.feedGeneration += 1;
+  target.articles = [];
+  target.cursor = null;
+  target.loadingFeed = false;
+  target.feedError = null;
+  target.revisionMismatch = false;
+  target.expandedIds.clear();
+  target.loadingDetails.clear();
+  target.detailErrors.clear();
+  target.fullArticles.clear();
+  if (target === state || (state.searchOpen && state.query)) void loadFeed(true, target);
+  else render();
+}
+
 function resetFeed(): void {
-  resetScrollOnRender = true;
-  feedController?.abort();
-  state.feedGeneration += 1;
-  state.articles = [];
-  state.cursor = null;
-  state.loadingFeed = false;
-  state.feedError = null;
-  state.revisionMismatch = false;
-  state.expandedIds.clear();
-  state.loadingDetails.clear();
-  state.detailErrors.clear();
-  state.fullArticles.clear();
-  void loadFeed(true);
+  resetOneFeed(state);
+  resetOneFeed(searchFeed);
+}
+
+function closeSearch(): void {
+  state.searchOpen = false;
+  state.query = '';
+  resetOneFeed(searchFeed);
+  app?.querySelector<HTMLButtonElement>('[data-action="open-search"]')?.focus();
 }
 
 function selectFolder(folder: string | null): void {
@@ -168,82 +196,82 @@ async function loadMetadata<T>(kind: 'channels' | 'tags', reset = false): Promis
   }
 }
 
-async function loadFeed(firstPage = false): Promise<void> {
-  if (state.loadingFeed || state.revisionMismatch || state.articles.length >= ARTICLE_WINDOW_LIMIT) return;
-  if (!firstPage && state.cursor === null) return;
-  const generation = state.feedGeneration;
-  feedController?.abort();
+async function loadFeed(firstPage = false, target: FeedState = state): Promise<void> {
+  if (target.loadingFeed || target.revisionMismatch || target.articles.length >= ARTICLE_WINDOW_LIMIT) return;
+  if (!firstPage && target.cursor === null) return;
+  const generation = target.feedGeneration;
+  target.controller?.abort();
   const controller = new AbortController();
-  feedController = controller;
-  state.loadingFeed = true;
-  state.feedError = null;
+  target.controller = controller;
+  target.loadingFeed = true;
+  target.feedError = null;
   render();
   const params = {
     area: state.area,
     folder: state.folder,
     tag: [...state.selectedTags].sort(),
     tagMode: state.tagMode,
-    q: state.query || null,
+    q: target === searchFeed ? state.query || null : null,
     dateFrom: state.dateFrom || null,
     dateTo: state.dateTo || null,
-    cursor: firstPage ? null : state.cursor,
+    cursor: firstPage ? null : target.cursor,
   };
   try {
     const page = await request<Page<Article>>(`/api/articles${queryString(params)}`, controller.signal);
-    if (generation !== state.feedGeneration) return;
-    state.articles = appendWithinWindow(state.articles, page.items);
-    state.cursor = page.nextCursor;
+    if (generation !== target.feedGeneration) return;
+    target.articles = appendWithinWindow(target.articles, page.items);
+    target.cursor = page.nextCursor;
   } catch (error) {
-    if (generation !== state.feedGeneration) return;
-    if (error instanceof RevisionMismatchError) state.revisionMismatch = true;
-    else if (!(error instanceof DOMException && error.name === 'AbortError')) state.feedError = errorMessage(error);
+    if (generation !== target.feedGeneration) return;
+    if (error instanceof RevisionMismatchError) target.revisionMismatch = true;
+    else if (!(error instanceof DOMException && error.name === 'AbortError')) target.feedError = errorMessage(error);
   } finally {
-    if (generation === state.feedGeneration) {
-      state.loadingFeed = false;
+    if (generation === target.feedGeneration) {
+      target.loadingFeed = false;
       render();
     }
   }
 }
 
-async function loadArticleDetail(id: string): Promise<void> {
-  if (state.loadingDetails.has(id)) return;
-  const generation = state.feedGeneration;
-  state.loadingDetails.add(id);
-  state.detailErrors.delete(id);
+async function loadArticleDetail(id: string, target: FeedState = state): Promise<void> {
+  if (target.loadingDetails.has(id)) return;
+  const generation = target.feedGeneration;
+  target.loadingDetails.add(id);
+  target.detailErrors.delete(id);
   render();
   try {
     const article = await request<Article>(`/api/articles/${encodeURIComponent(id)}`);
-    if (generation !== state.feedGeneration) return;
-    state.fullArticles.set(id, article);
-    state.expandedIds.add(id);
+    if (generation !== target.feedGeneration) return;
+    target.fullArticles.set(id, article);
+    target.expandedIds.add(id);
   } catch (error) {
-    if (generation !== state.feedGeneration) return;
-    if (error instanceof RevisionMismatchError) state.revisionMismatch = true;
-    else state.detailErrors.set(id, errorMessage(error));
+    if (generation !== target.feedGeneration) return;
+    if (error instanceof RevisionMismatchError) target.revisionMismatch = true;
+    else target.detailErrors.set(id, errorMessage(error));
   } finally {
-    if (generation === state.feedGeneration) {
-      state.loadingDetails.delete(id);
+    if (generation === target.feedGeneration) {
+      target.loadingDetails.delete(id);
       render();
     }
   }
 }
 
-function loadOlderWindow(): void {
-  const olderWindow = startOlderWindow<Article>(state.cursor);
-  if (!olderWindow || state.loadingFeed) return;
-  resetScrollOnRender = true;
-  feedController?.abort();
-  state.feedGeneration += 1;
-  state.articles = olderWindow.items;
-  state.cursor = olderWindow.cursor;
-  state.loadingFeed = false;
-  state.feedError = null;
-  state.revisionMismatch = false;
-  state.expandedIds.clear();
-  state.loadingDetails.clear();
-  state.detailErrors.clear();
-  state.fullArticles.clear();
-  void loadFeed();
+function loadOlderWindow(target: FeedState = state): void {
+  const olderWindow = startOlderWindow<Article>(target.cursor);
+  if (!olderWindow || target.loadingFeed) return;
+  target.resetScroll = true;
+  target.controller?.abort();
+  target.feedGeneration += 1;
+  target.articles = olderWindow.items;
+  target.cursor = olderWindow.cursor;
+  target.loadingFeed = false;
+  target.feedError = null;
+  target.revisionMismatch = false;
+  target.expandedIds.clear();
+  target.loadingDetails.clear();
+  target.detailErrors.clear();
+  target.fullArticles.clear();
+  void loadFeed(false, target);
 }
 
 function focusMenuButton(): void {
@@ -266,12 +294,12 @@ function dateLabel(value: string): string {
   return new Intl.DateTimeFormat('ja-JP', { dateStyle: 'medium', timeStyle: 'short' }).format(date);
 }
 
-function articleMarkup(article: Article): string {
-  const expanded = state.expandedIds.has(article.id);
-  const detail = state.fullArticles.get(article.id);
+function articleMarkup(article: Article, target: FeedState = state): string {
+  const expanded = target.expandedIds.has(article.id);
+  const detail = target.fullArticles.get(article.id);
   const displayed = expanded ? detail ?? article : article;
-  const isLoadingDetail = state.loadingDetails.has(article.id);
-  const detailError = state.detailErrors.get(article.id);
+  const isLoadingDetail = target.loadingDetails.has(article.id);
+  const detailError = target.detailErrors.get(article.id);
   const renderedAttachments = new Set<string>();
   const bodyHtml = safeMarkdown(displayed.body, displayed, renderedAttachments);
   let body = `<div class="article-body${expanded ? ' expanded' : ''}">${bodyHtml}</div>`;
@@ -289,25 +317,42 @@ function articleMarkup(article: Article): string {
   </article>`;
 }
 
+const searchIcon = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4.5 4.5"/></svg>';
+
+function feedMarkup(target: FeedState, filtered: boolean): string {
+  const articleContent = target.articles.map(article => articleMarkup(article, target)).join('');
+  const noMore = target.cursor === null && !target.loadingFeed && target.articles.length > 0;
+  const hasNoResults = !target.loadingFeed && !target.feedError && !target.revisionMismatch && !target.articles.length;
+  return `<div class="feed-scroll" id="${target === state ? 'feed-scroll' : 'search-scroll'}" aria-live="polite"><div class="feed-content">
+        ${target.revisionMismatch ? `<div class="notice warning" role="alert"><strong>一覧が更新されました</strong><p>記事の追加や移動があったため、ページを続けて表示できません。</p><button class="primary-button" data-action="reset-feed">最新の一覧を読み込む</button></div>` : ''}
+        ${target.feedError ? `<div class="notice error" role="alert"><strong>記事を読み込めませんでした</strong><p>${escapeHtml(target.feedError)}</p><button class="primary-button" data-action="retry-feed">再試行</button></div>` : ''}
+        ${hasNoResults ? `<div class="empty-state"><div class="empty-icon">⌕</div><h3>${filtered ? '記事が見つかりません' : 'まだ記事がありません'}</h3><p>${filtered ? '検索語や絞り込み条件を変えてみてください。' : '記事が同期されると、ここに表示されます。'}</p>${filtered ? '<button class="text-action" data-action="clear-filters">条件をクリア</button>' : ''}</div>` : ''}
+        ${articleContent}
+        ${target.loadingFeed ? '<div class="loading-row" role="status"><span class="spinner"></span>記事を読み込み中…</div>' : ''}
+        ${target.articles.length >= ARTICLE_WINDOW_LIMIT ? `<div class="notice limit-notice"><strong>表示件数をいったん区切りました</strong><p>一度に保持する記事は${ARTICLE_WINDOW_LIMIT}件までです。${target.cursor ? '続けて古い記事を表示すると、今の一覧を入れ替えます。' : 'これより古い記事はありません。'}</p>${target.cursor ? '<button class="primary-button" data-action="load-older-window">さらに古い記事を表示</button>' : ''} <button class="text-action" data-action="reset-feed">最新から読み直す</button></div>` : ''}
+        ${target.cursor && target.articles.length < ARTICLE_WINDOW_LIMIT && !target.loadingFeed && !target.revisionMismatch ? '<button class="load-more" data-action="load-more">さらに記事を読み込む</button>' : ''}
+        ${noMore ? '<p class="end-of-feed">— ここまでです —</p>' : ''}
+      </div></div>`;
+}
+
 function render(): void {
   if (!app) return;
-  const feedScroll = resetScrollOnRender ? 0 : app.querySelector<HTMLElement>('#feed-scroll')?.scrollTop ?? 0;
+  const feedScroll = state.resetScroll ? 0 : app.querySelector<HTMLElement>('#feed-scroll')?.scrollTop ?? 0;
   const sidebarScroll = app.querySelector<HTMLElement>('.sidebar')?.scrollTop ?? 0;
-  resetScrollOnRender = false;
+  const searchScroll = searchFeed.resetScroll ? 0 : app.querySelector<HTMLElement>('#search-scroll')?.scrollTop ?? 0;
+  state.resetScroll = false;
+  searchFeed.resetScroll = false;
   const searchInput = app.querySelector<HTMLInputElement>('#search-input');
   const searchDraft = renderedQuery === state.query ? searchInput?.value : undefined;
   const searchFocused = document.activeElement === searchInput;
   const selection = searchFocused ? [searchInput?.selectionStart ?? 0, searchInput?.selectionEnd ?? 0] : null;
-  const oldPosts = new Map(Array.from(app.querySelectorAll<HTMLElement>('.post')).map(post => [post.dataset.id, post]));
+  const oldPosts = new Map(Array.from(app.querySelectorAll<HTMLElement>('.post')).map(post => [`${post.closest('.feed-scroll')?.id}:${post.dataset.id}`, post]));
   const channelRows = state.channels.items.map((channel) => `<button class="channel-row${state.folder === channel.folder ? ' selected' : ''}" data-action="select-folder" data-folder="${escapeHtml(channel.folder)}">
     <span class="channel-hash">#</span><span class="channel-name">${escapeHtml(channel.folder)}</span><span class="channel-count">${channel.count}</span>
   </button>`).join('');
   const tagOptions = state.tags.items.map((tag) => `<button class="tag-option${state.selectedTags.has(tag.name) ? ' selected' : ''}" data-action="select-tag" data-tag="${escapeHtml(tag.name)}" aria-pressed="${state.selectedTags.has(tag.name)}"># ${escapeHtml(tag.name)} <span>${tag.count}</span></button>`).join('');
-  const activeFilters = state.folder || state.selectedTags.size > 0 || state.query;
+  const activeFilters = state.folder || state.selectedTags.size > 0;
   const filtered = activeFilters || state.dateFrom || state.dateTo;
-  const articleContent = state.articles.map(articleMarkup).join('');
-  const noMore = state.cursor === null && !state.loadingFeed && state.articles.length > 0;
-  const hasNoResults = !state.loadingFeed && !state.feedError && !state.revisionMismatch && !state.articles.length;
   const template = document.createElement('template');
   template.innerHTML = `<div class="app-shell">
     <aside class="sidebar${state.channelDrawerOpen ? ' drawer-open' : ''}" id="channel-panel" aria-label="チャンネル">
@@ -334,10 +379,10 @@ function render(): void {
     <main class="main-panel">
       <header class="topbar"><button class="icon-button menu-button" data-action="open-drawer" aria-label="チャンネル一覧を開く" aria-expanded="${state.channelDrawerOpen}" aria-controls="channel-panel">☰</button>
         <div class="current-channel"><span class="channel-hash">#</span><strong>${escapeHtml(state.folder ?? 'すべての記事')}</strong><span class="area-badge">${state.area === 'active' ? '進行中' : 'アーカイブ'}</span></div>
-        <span class="topbar-spacer"></span><span class="vault-status"><i></i>プライベート</span>
+        <span class="topbar-spacer"></span><span class="vault-status"><i></i>プライベート</span><button class="icon-button search-toggle" data-action="open-search" aria-label="記事検索を開く" aria-expanded="${state.searchOpen}" aria-controls="search-panel">${searchIcon}</button>
       </header>
-      <section class="feed-toolbar" aria-label="記事検索"><div class="feed-controls">
-        <form class="search-form" id="search-form"><label class="sr-only" for="search-input">記事を検索</label><input id="search-input" name="q" type="search" value="${escapeHtml(state.query)}" placeholder="記事を検索…" autocomplete="off" /><button type="submit" aria-label="検索">⌕</button></form>
+      <section class="feed-toolbar" aria-label="記事の期間"><div class="feed-controls">
+
         <div class="date-filter" role="group" aria-label="記事の期間（日本時間）">
           <label class="sr-only" for="date-from">開始日（日本時間）</label><input id="date-from" type="date" value="${escapeHtml(state.dateFrom)}" aria-label="開始日（日本時間）" />
           <span aria-hidden="true">〜</span>
@@ -345,33 +390,31 @@ function render(): void {
           ${state.dateFrom || state.dateTo ? '<button type="button" data-action="clear-dates" aria-label="期間の絞り込みを解除" title="期間を解除">×</button>' : ''}
         </div>
       </div></section>
-      ${activeFilters ? `<div class="active-filters">${state.folder ? `<button data-action="clear-folder"># ${escapeHtml(state.folder)} <span>×</span></button>` : ''}${[...state.selectedTags].map((tag) => `<button data-action="clear-tag" data-tag="${escapeHtml(tag)}" aria-label="${escapeHtml(tag)} の絞り込みを解除"># ${escapeHtml(tag)} <span>×</span></button>`).join('')}${state.query ? `<button data-action="clear-query">検索: ${escapeHtml(state.query)} <span>×</span></button>` : ''}<button class="clear-all" data-action="clear-filters">条件をクリア</button></div>` : ''}
-      <div class="feed-scroll" id="feed-scroll" aria-live="polite"><div class="feed-content">
-        ${state.revisionMismatch ? `<div class="notice warning" role="alert"><strong>一覧が更新されました</strong><p>記事の追加や移動があったため、ページを続けて表示できません。</p><button class="primary-button" data-action="reset-feed">最新の一覧を読み込む</button></div>` : ''}
-        ${state.feedError ? `<div class="notice error" role="alert"><strong>記事を読み込めませんでした</strong><p>${escapeHtml(state.feedError)}</p><button class="primary-button" data-action="retry-feed">再試行</button></div>` : ''}
-        ${hasNoResults ? `<div class="empty-state"><div class="empty-icon">⌕</div><h3>${filtered ? '記事が見つかりません' : 'まだ記事がありません'}</h3><p>${filtered ? '検索語や絞り込み条件を変えてみてください。' : '記事が同期されると、ここに表示されます。'}</p>${filtered ? '<button class="text-action" data-action="clear-filters">条件をクリア</button>' : ''}</div>` : ''}
-        ${articleContent}
-        ${state.loadingFeed ? '<div class="loading-row" role="status"><span class="spinner"></span>記事を読み込み中…</div>' : ''}
-        ${state.articles.length >= ARTICLE_WINDOW_LIMIT ? `<div class="notice limit-notice"><strong>表示件数をいったん区切りました</strong><p>一度に保持する記事は${ARTICLE_WINDOW_LIMIT}件までです。${state.cursor ? '続けて古い記事を表示すると、今の一覧を入れ替えます。' : 'これより古い記事はありません。'}</p>${state.cursor ? '<button class="primary-button" data-action="load-older-window">さらに古い記事を表示</button>' : ''} <button class="text-action" data-action="reset-feed">最新から読み直す</button></div>` : ''}
-        ${state.cursor && state.articles.length < ARTICLE_WINDOW_LIMIT && !state.loadingFeed && !state.revisionMismatch ? '<button class="load-more" data-action="load-more">さらに記事を読み込む</button>' : ''}
-        ${noMore ? '<p class="end-of-feed">— ここまでです —</p>' : ''}
-      </div></div>
+      ${activeFilters ? `<div class="active-filters">${state.folder ? `<button data-action="clear-folder"># ${escapeHtml(state.folder)} <span>×</span></button>` : ''}${[...state.selectedTags].map((tag) => `<button data-action="clear-tag" data-tag="${escapeHtml(tag)}" aria-label="${escapeHtml(tag)} の絞り込みを解除"># ${escapeHtml(tag)} <span>×</span></button>`).join('')}<button class="clear-all" data-action="clear-filters">条件をクリア</button></div>` : ''}
+      ${feedMarkup(state, Boolean(filtered))}
     </main>
+    ${state.searchOpen ? `<section class="search-panel" id="search-panel" aria-label="記事検索">
+      <header class="topbar search-heading"><button class="icon-button search-back" data-action="close-search" aria-label="検索を終了">&lt;</button><div class="current-channel"><span class="channel-hash">#</span><strong>${escapeHtml(state.folder ?? 'すべての記事')}</strong></div><span class="topbar-spacer"></span><button class="icon-button search-close" data-action="close-search" aria-label="検索を終了">×</button></header>
+      <div class="search-controls"><form class="search-form" id="search-form"><label class="sr-only" for="search-input">記事を検索</label><input id="search-input" name="q" type="search" value="${escapeHtml(state.query)}" placeholder="記事を検索…" autocomplete="off" /><button type="submit" aria-label="検索">${searchIcon}</button></form></div>
+      ${state.query ? feedMarkup(searchFeed, true) : '<div class="empty-state"><h3>記事を検索</h3><p>検索する言葉を入力してください。</p></div>'}
+    </section>` : ''}
   </div>`;
   // Reuse unchanged cards before attaching the fragment, so loaded thumbnails
   // are not downloaded again whenever a request or filter control updates.
   for (const post of template.content.querySelectorAll<HTMLElement>('.post')) {
-    const old = oldPosts.get(post.dataset.id);
+    const old = oldPosts.get(`${post.closest('.feed-scroll')?.id}:${post.dataset.id}`);
     if (old?.isEqualNode(post)) post.replaceWith(old);
   }
   app.replaceChildren(template.content);
   const newSearch = app.querySelector<HTMLInputElement>('#search-input')!;
-  if (searchDraft !== undefined) newSearch.value = searchDraft;
-  if (searchFocused) {
+  if (newSearch && searchDraft !== undefined) newSearch.value = searchDraft;
+  if (newSearch && searchFocused) {
     newSearch.focus({ preventScroll: true });
     if (selection) newSearch.setSelectionRange(selection[0], selection[1]);
   }
   app.querySelector<HTMLElement>('#feed-scroll')!.scrollTop = feedScroll;
+  const searchScroller = app.querySelector<HTMLElement>('#search-scroll');
+  if (searchScroller) searchScroller.scrollTop = searchScroll;
   app.querySelector<HTMLElement>('.sidebar')!.scrollTop = sidebarScroll;
   renderedQuery = state.query;
 }
@@ -380,6 +423,7 @@ app.addEventListener('click', (event) => {
   const target = (event.target as HTMLElement).closest<HTMLElement>('[data-action]');
   if (!target) return;
   const action = target.dataset.action;
+  const feed = target.closest('#search-panel') ? searchFeed : state;
   if (action === 'area') {
     const area = target.dataset.area as Area;
     if (state.area === area) return;
@@ -412,24 +456,25 @@ app.addEventListener('click', (event) => {
     resetFeed();
   }
   else if (action === 'clear-folder') selectFolder(null);
-  else if (action === 'clear-query') { state.query = ''; resetFeed(); }
+  else if (action === 'open-search') { state.searchOpen = true; render(); app?.querySelector<HTMLInputElement>('#search-input')?.focus(); }
+  else if (action === 'close-search') closeSearch();
   else if (action === 'clear-filters') { state.query = ''; state.dateFrom = ''; state.dateTo = ''; selectFolder(null); }
   else if (action === 'clear-dates') { state.dateFrom = ''; state.dateTo = ''; resetFeed(); }
   else if (action === 'load-channels') void loadMetadata('channels');
   else if (action === 'load-tags') void loadMetadata('tags');
-  else if (action === 'load-more') void loadFeed();
-  else if (action === 'load-older-window') loadOlderWindow();
-  else if (action === 'retry-feed') void loadFeed(state.articles.length === 0);
-  else if (action === 'reset-feed') resetFeed();
+  else if (action === 'load-more') void loadFeed(false, feed);
+  else if (action === 'load-older-window') loadOlderWindow(feed);
+  else if (action === 'retry-feed') void loadFeed(feed.articles.length === 0, feed);
+  else if (action === 'reset-feed') resetOneFeed(feed);
   else if (action === 'open-drawer') {
     state.channelDrawerOpen = true;
     render();
     app?.querySelector<HTMLButtonElement>('.close-drawer')?.focus();
   }
   else if (action === 'close-drawer') closeDrawer();
-  else if (action === 'read-more') void loadArticleDetail(target.dataset.id ?? '');
-  else if (action === 'expand') { state.expandedIds.add(target.dataset.id ?? ''); render(); }
-  else if (action === 'collapse') { state.expandedIds.delete(target.dataset.id ?? ''); render(); }
+  else if (action === 'read-more') void loadArticleDetail(target.dataset.id ?? '', feed);
+  else if (action === 'expand') { feed.expandedIds.add(target.dataset.id ?? ''); render(); }
+  else if (action === 'collapse') { feed.expandedIds.delete(target.dataset.id ?? ''); render(); }
 });
 
 app.addEventListener('change', (event) => {
@@ -447,18 +492,22 @@ app.addEventListener('submit', (event) => {
   const data = new FormData(event.target as HTMLFormElement);
   state.query = String(data.get('q') ?? '').trim();
   state.channelDrawerOpen = false;
-  resetFeed();
+  resetOneFeed(searchFeed);
   if (restoreFocus) focusMenuButton();
 });
 
 document.addEventListener('keydown', (event) => {
-  if (event.key === 'Escape' && state.channelDrawerOpen) closeDrawer();
+  if (event.key !== 'Escape') return;
+  if (state.channelDrawerOpen) closeDrawer();
+  else if (state.searchOpen) closeSearch();
 });
 
 app.addEventListener('scroll', (event) => {
   const element = event.target as HTMLElement;
-  if (element.id !== 'feed-scroll' || !state.cursor || state.loadingFeed || state.revisionMismatch) return;
-  if (element.scrollHeight - element.scrollTop - element.clientHeight < 260) void loadFeed();
+  if (element.id !== 'feed-scroll' && element.id !== 'search-scroll') return;
+  const feed = element.id === 'search-scroll' ? searchFeed : state;
+  if (!feed.cursor || feed.loadingFeed || feed.revisionMismatch) return;
+  if (element.scrollHeight - element.scrollTop - element.clientHeight < 260) void loadFeed(false, feed);
 }, true);
 
 render();

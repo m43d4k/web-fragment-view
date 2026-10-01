@@ -26,6 +26,7 @@ it('keeps reading position, loaded thumbnails, and the search draft when the nex
   const scroll = document.querySelector<HTMLElement>('#feed-scroll')!;
   scroll.scrollTop = 450;
   const image = document.querySelector('.attachment img');
+  document.querySelector<HTMLButtonElement>('[data-action="open-search"]')!.click();
   const input = document.querySelector<HTMLInputElement>('#search-input')!;
   input.value = '入力途中';
   input.focus();
@@ -144,18 +145,94 @@ it('sends inclusive date selections with search and preserves them during pagina
   setDate('#date-to', '2026-09-30');
   await vi.waitFor(() => expect(calls.at(-1)?.searchParams.get('dateTo')).toBe('2026-09-30'));
   expect(calls.at(-1)?.searchParams.get('dateFrom')).toBe('2026-09-01');
+  document.querySelector<HTMLButtonElement>('[data-action="open-search"]')!.click();
   document.querySelector<HTMLInputElement>('#search-input')!.value = '音楽';
   document.querySelector<HTMLFormElement>('#search-form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
   await vi.waitFor(() => expect(calls.at(-1)?.searchParams.get('q')).toBe('音楽'));
-  await vi.waitFor(() => expect(document.querySelector('[data-action="load-more"]')).not.toBeNull());
-  document.querySelector<HTMLButtonElement>('[data-action="load-more"]')!.click();
+  await vi.waitFor(() => expect(document.querySelector('#search-panel [data-action="load-more"]')).not.toBeNull());
+  document.querySelector<HTMLButtonElement>('#search-panel [data-action="load-more"]')!.click();
   await vi.waitFor(() => expect(calls.at(-1)?.searchParams.get('cursor')).toBe('page2'));
   expect(calls.at(-1)?.searchParams.get('dateFrom')).toBe('2026-09-01');
   expect(calls.at(-1)?.searchParams.get('dateTo')).toBe('2026-09-30');
+  const beforeClear = calls.length;
   document.querySelector<HTMLButtonElement>('[data-action="clear-dates"]')!.click();
   await vi.waitFor(() => expect(calls.at(-1)?.searchParams.has('dateFrom')).toBe(false));
   expect(calls.at(-1)?.searchParams.has('dateTo')).toBe(false);
   expect(calls.at(-1)?.searchParams.has('cursor')).toBe(false);
   expect(calls.at(-1)?.searchParams.get('q')).toBe('音楽');
+  expect(calls.slice(beforeClear).map(url => url.searchParams.get('q'))).toEqual(expect.arrayContaining([null, '音楽']));
+  vi.unstubAllGlobals();
+});
+
+
+it('opens a separate search panel and preserves the feed and its reading position when searching and closing', async () => {
+  document.body.innerHTML = '<div id="app"></div>';
+  const calls: URL[] = [];
+  const article: Article = {
+    id: 'same', path: 'active/notes/same.md', area: 'active', folder: 'notes', title: 'same',
+    createdAt: '2026-09-01T00:00:00.000Z', updatedAt: '2026-09-01T00:00:00.000Z',
+    body: '検索対象', tags: [], truncated: false, attachments: [],
+  };
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+    const parsed = new URL(url, 'https://viewer.example');
+    if (parsed.pathname === '/api/articles') calls.push(parsed);
+    return Response.json({ items: parsed.pathname === '/api/articles' ? [article] : [], revision: 1, nextCursor: null });
+  }));
+  vi.resetModules();
+  await import('../src/web/main');
+  await vi.waitFor(() => expect(document.querySelector('#feed-scroll .post')).not.toBeNull());
+  const post = document.querySelector('#feed-scroll .post');
+  document.querySelector<HTMLElement>('#feed-scroll')!.scrollTop = 275;
+  expect(document.querySelector('#search-input')).toBeNull();
+  expect(document.querySelector('#search-panel')).toBeNull();
+  const opener = document.querySelector<HTMLButtonElement>('.topbar [data-action="open-search"]')!;
+  expect(opener.getAttribute('aria-label')).toBeTruthy();
+  opener.click();
+  expect(document.activeElement?.id).toBe('search-input');
+  expect(document.querySelector('#search-panel #search-form')).not.toBeNull();
+  document.querySelector<HTMLInputElement>('#search-input')!.value = '検索';
+  document.querySelector<HTMLFormElement>('#search-form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+  await vi.waitFor(() => expect(document.querySelector('#search-scroll .post')).not.toBeNull());
+  expect(calls.filter(url => !url.searchParams.has('q'))).toHaveLength(1);
+  expect(calls.at(-1)?.searchParams.get('q')).toBe('検索');
+  expect(document.querySelector('#feed-scroll .post')).toBe(post);
+  expect(document.querySelector('#search-scroll .post')).not.toBe(post);
+  expect(document.querySelector<HTMLElement>('#feed-scroll')!.scrollTop).toBe(275);
+  document.querySelector<HTMLButtonElement>('#search-panel [data-action="close-search"]')!.click();
+  expect(document.querySelector('#search-panel')).toBeNull();
+  expect(document.querySelector('#feed-scroll .post')).toBe(post);
+  expect(document.querySelector<HTMLElement>('#feed-scroll')!.scrollTop).toBe(275);
+  expect(document.activeElement?.getAttribute('data-action')).toBe('open-search');
+  expect(calls.filter(url => !url.searchParams.has('q'))).toHaveLength(1);
+  vi.unstubAllGlobals();
+});
+
+it('ignores a search response that arrives after closing and reopening search', async () => {
+  document.body.innerHTML = '<div id="app"></div>';
+  let finishSearch!: (response: Response) => void;
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+    const parsed = new URL(url, 'https://viewer.example');
+    if (parsed.pathname === '/api/articles' && parsed.searchParams.has('q')) {
+      return new Promise<Response>(resolve => { finishSearch = resolve; });
+    }
+    return Response.json({ items: [], revision: 1, nextCursor: null });
+  }));
+  vi.resetModules();
+  await import('../src/web/main');
+  await vi.waitFor(() => expect(document.querySelector('.loading-row')).toBeNull());
+  document.querySelector<HTMLButtonElement>('[data-action="open-search"]')!.click();
+  document.querySelector<HTMLInputElement>('#search-input')!.value = '古い検索';
+  document.querySelector<HTMLFormElement>('#search-form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+  await vi.waitFor(() => expect(finishSearch).toBeTypeOf('function'));
+  document.querySelector<HTMLButtonElement>('#search-panel [data-action="close-search"]')!.click();
+  document.querySelector<HTMLButtonElement>('[data-action="open-search"]')!.click();
+  finishSearch(Response.json({ items: [{
+    id: 'late', path: 'active/notes/late.md', area: 'active', folder: 'notes', title: 'late',
+    createdAt: '2026-09-01T00:00:00.000Z', updatedAt: '2026-09-01T00:00:00.000Z',
+    body: '古い検索結果', tags: [], truncated: false, attachments: [],
+  }], revision: 1, nextCursor: null }));
+  await new Promise(resolve => setTimeout(resolve, 0));
+  expect(document.querySelectorAll('.post')).toHaveLength(0);
+  expect(document.querySelector<HTMLInputElement>('#search-input')!.value).toBe('');
   vi.unstubAllGlobals();
 });
