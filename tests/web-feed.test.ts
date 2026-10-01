@@ -136,6 +136,9 @@ it('sends inclusive date selections with search and preserves them during pagina
   vi.resetModules();
   await import('../src/web/main');
   await vi.waitFor(() => expect(calls).toHaveLength(1));
+  expect(document.querySelector('#date-from')).toBeNull();
+  document.querySelector<HTMLButtonElement>('[data-action="open-search"]')!.click();
+  expect(document.querySelector('#search-panel #date-from')).not.toBeNull();
   const setDate = (id: string, value: string) => {
     const input = document.querySelector<HTMLInputElement>(id)!;
     input.value = value;
@@ -145,7 +148,8 @@ it('sends inclusive date selections with search and preserves them during pagina
   setDate('#date-to', '2026-09-30');
   await vi.waitFor(() => expect(calls.at(-1)?.searchParams.get('dateTo')).toBe('2026-09-30'));
   expect(calls.at(-1)?.searchParams.get('dateFrom')).toBe('2026-09-01');
-  document.querySelector<HTMLButtonElement>('[data-action="open-search"]')!.click();
+  expect(document.querySelector('#search-scroll')).not.toBeNull();
+  expect(calls.filter(url => !url.searchParams.has('dateFrom'))).toHaveLength(1);
   document.querySelector<HTMLInputElement>('#search-input')!.value = '音楽';
   document.querySelector<HTMLFormElement>('#search-form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
   await vi.waitFor(() => expect(calls.at(-1)?.searchParams.get('q')).toBe('音楽'));
@@ -160,7 +164,12 @@ it('sends inclusive date selections with search and preserves them during pagina
   expect(calls.at(-1)?.searchParams.has('dateTo')).toBe(false);
   expect(calls.at(-1)?.searchParams.has('cursor')).toBe(false);
   expect(calls.at(-1)?.searchParams.get('q')).toBe('音楽');
-  expect(calls.slice(beforeClear).map(url => url.searchParams.get('q'))).toEqual(expect.arrayContaining([null, '音楽']));
+  expect(calls.slice(beforeClear).map(url => url.searchParams.get('q'))).toEqual(['音楽']);
+  setDate('#date-to', '2026-09-30');
+  document.querySelector<HTMLButtonElement>('#search-panel [data-action="close-search"]')!.click();
+  document.querySelector<HTMLButtonElement>('[data-action="open-search"]')!.click();
+  expect(document.querySelector<HTMLInputElement>('#date-to')!.value).toBe('');
+  expect(document.querySelector('#search-scroll')).toBeNull();
   vi.unstubAllGlobals();
 });
 

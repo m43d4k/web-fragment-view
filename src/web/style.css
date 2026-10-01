@@ -216,3 +216,6 @@ button:focus-visible, input:focus-visible, a:focus-visible { outline: 2px solid 
   .search-heading .current-channel strong { max-width: none; }
   .search-form input { font-size: 16px; }
 }
+
+.search-controls .date-filter { width: 100%; margin-top: 10px; }
+.search-controls .date-filter input { flex: 1 1 0; width: 0; }

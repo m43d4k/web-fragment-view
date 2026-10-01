@@ -129,7 +129,7 @@ function resetOneFeed(target: FeedState): void {
   target.loadingDetails.clear();
   target.detailErrors.clear();
   target.fullArticles.clear();
-  if (target === state || (state.searchOpen && state.query)) void loadFeed(true, target);
+  if (target === state || (state.searchOpen && (state.query || state.dateFrom || state.dateTo))) void loadFeed(true, target);
   else render();
 }
 
@@ -141,6 +141,8 @@ function resetFeed(): void {
 function closeSearch(): void {
   state.searchOpen = false;
   state.query = '';
+  state.dateFrom = '';
+  state.dateTo = '';
   resetOneFeed(searchFeed);
   app?.querySelector<HTMLButtonElement>('[data-action="open-search"]')?.focus();
 }
@@ -212,8 +214,8 @@ async function loadFeed(firstPage = false, target: FeedState = state): Promise<v
     tag: [...state.selectedTags].sort(),
     tagMode: state.tagMode,
     q: target === searchFeed ? state.query || null : null,
-    dateFrom: state.dateFrom || null,
-    dateTo: state.dateTo || null,
+    dateFrom: target === searchFeed ? state.dateFrom || null : null,
+    dateTo: target === searchFeed ? state.dateTo || null : null,
     cursor: firstPage ? null : target.cursor,
   };
   try {
@@ -352,7 +354,7 @@ function render(): void {
   </button>`).join('');
   const tagOptions = state.tags.items.map((tag) => `<button class="tag-option${state.selectedTags.has(tag.name) ? ' selected' : ''}" data-action="select-tag" data-tag="${escapeHtml(tag.name)}" aria-pressed="${state.selectedTags.has(tag.name)}"># ${escapeHtml(tag.name)} <span>${tag.count}</span></button>`).join('');
   const activeFilters = state.folder || state.selectedTags.size > 0;
-  const filtered = activeFilters || state.dateFrom || state.dateTo;
+  const filtered = activeFilters;
   const template = document.createElement('template');
   template.innerHTML = `<div class="app-shell">
     <aside class="sidebar${state.channelDrawerOpen ? ' drawer-open' : ''}" id="channel-panel" aria-label="チャンネル">
@@ -381,22 +383,20 @@ function render(): void {
         <div class="current-channel"><span class="channel-hash">#</span><strong>${escapeHtml(state.folder ?? 'すべての記事')}</strong><span class="area-badge">${state.area === 'active' ? '進行中' : 'アーカイブ'}</span></div>
         <span class="topbar-spacer"></span><span class="vault-status"><i></i>プライベート</span><button class="icon-button search-toggle" data-action="open-search" aria-label="記事検索を開く" aria-expanded="${state.searchOpen}" aria-controls="search-panel">${searchIcon}</button>
       </header>
-      <section class="feed-toolbar" aria-label="記事の期間"><div class="feed-controls">
-
+      ${activeFilters ? `<div class="active-filters">${state.folder ? `<button data-action="clear-folder"># ${escapeHtml(state.folder)} <span>×</span></button>` : ''}${[...state.selectedTags].map((tag) => `<button data-action="clear-tag" data-tag="${escapeHtml(tag)}" aria-label="${escapeHtml(tag)} の絞り込みを解除"># ${escapeHtml(tag)} <span>×</span></button>`).join('')}<button class="clear-all" data-action="clear-filters">条件をクリア</button></div>` : ''}
+      ${feedMarkup(state, Boolean(filtered))}
+    </main>
+    ${state.searchOpen ? `<section class="search-panel" id="search-panel" aria-label="記事検索">
+      <header class="topbar search-heading"><button class="icon-button search-back" data-action="close-search" aria-label="検索を終了">&lt;</button><div class="current-channel"><span class="channel-hash">#</span><strong>${escapeHtml(state.folder ?? 'すべての記事')}</strong></div><span class="topbar-spacer"></span><button class="icon-button search-close" data-action="close-search" aria-label="検索を終了">×</button></header>
+      <div class="search-controls"><form class="search-form" id="search-form"><label class="sr-only" for="search-input">記事を検索</label><input id="search-input" name="q" type="search" value="${escapeHtml(state.query)}" placeholder="記事を検索…" autocomplete="off" /><button type="submit" aria-label="検索">${searchIcon}</button></form>
         <div class="date-filter" role="group" aria-label="記事の期間（日本時間）">
           <label class="sr-only" for="date-from">開始日（日本時間）</label><input id="date-from" type="date" value="${escapeHtml(state.dateFrom)}" aria-label="開始日（日本時間）" />
           <span aria-hidden="true">〜</span>
           <label class="sr-only" for="date-to">終了日（日本時間）</label><input id="date-to" type="date" value="${escapeHtml(state.dateTo)}" aria-label="終了日（日本時間）" />
           ${state.dateFrom || state.dateTo ? '<button type="button" data-action="clear-dates" aria-label="期間の絞り込みを解除" title="期間を解除">×</button>' : ''}
         </div>
-      </div></section>
-      ${activeFilters ? `<div class="active-filters">${state.folder ? `<button data-action="clear-folder"># ${escapeHtml(state.folder)} <span>×</span></button>` : ''}${[...state.selectedTags].map((tag) => `<button data-action="clear-tag" data-tag="${escapeHtml(tag)}" aria-label="${escapeHtml(tag)} の絞り込みを解除"># ${escapeHtml(tag)} <span>×</span></button>`).join('')}<button class="clear-all" data-action="clear-filters">条件をクリア</button></div>` : ''}
-      ${feedMarkup(state, Boolean(filtered))}
-    </main>
-    ${state.searchOpen ? `<section class="search-panel" id="search-panel" aria-label="記事検索">
-      <header class="topbar search-heading"><button class="icon-button search-back" data-action="close-search" aria-label="検索を終了">&lt;</button><div class="current-channel"><span class="channel-hash">#</span><strong>${escapeHtml(state.folder ?? 'すべての記事')}</strong></div><span class="topbar-spacer"></span><button class="icon-button search-close" data-action="close-search" aria-label="検索を終了">×</button></header>
-      <div class="search-controls"><form class="search-form" id="search-form"><label class="sr-only" for="search-input">記事を検索</label><input id="search-input" name="q" type="search" value="${escapeHtml(state.query)}" placeholder="記事を検索…" autocomplete="off" /><button type="submit" aria-label="検索">${searchIcon}</button></form></div>
-      ${state.query ? feedMarkup(searchFeed, true) : '<div class="empty-state"><h3>記事を検索</h3><p>検索する言葉を入力してください。</p></div>'}
+      </div>
+      ${state.query || state.dateFrom || state.dateTo ? feedMarkup(searchFeed, true) : '<div class="empty-state"><h3>記事を検索</h3><p>検索する言葉や期間を指定してください。</p></div>'}
     </section>` : ''}
   </div>`;
   // Reuse unchanged cards before attaching the fragment, so loaded thumbnails
@@ -459,7 +459,7 @@ app.addEventListener('click', (event) => {
   else if (action === 'open-search') { state.searchOpen = true; render(); app?.querySelector<HTMLInputElement>('#search-input')?.focus(); }
   else if (action === 'close-search') closeSearch();
   else if (action === 'clear-filters') { state.query = ''; state.dateFrom = ''; state.dateTo = ''; selectFolder(null); }
-  else if (action === 'clear-dates') { state.dateFrom = ''; state.dateTo = ''; resetFeed(); }
+  else if (action === 'clear-dates') { state.dateFrom = ''; state.dateTo = ''; resetOneFeed(searchFeed); }
   else if (action === 'load-channels') void loadMetadata('channels');
   else if (action === 'load-tags') void loadMetadata('tags');
   else if (action === 'load-more') void loadFeed(false, feed);
@@ -482,7 +482,7 @@ app.addEventListener('change', (event) => {
   if (input.id !== 'date-from' && input.id !== 'date-to') return;
   if (input.id === 'date-from') state.dateFrom = input.value;
   else state.dateTo = input.value;
-  resetFeed();
+  resetOneFeed(searchFeed);
 });
 
 app.addEventListener('submit', (event) => {
