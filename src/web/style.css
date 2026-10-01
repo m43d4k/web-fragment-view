@@ -219,3 +219,6 @@ button:focus-visible, input:focus-visible, a:focus-visible { outline: 2px solid 
 
 .search-controls .date-filter { width: 100%; margin-top: 10px; }
 .search-controls .date-filter input { flex: 1 1 0; width: 0; }
+
+.tag-controls { display: flex; align-items: center; gap: 8px; }
+.tag-controls button:disabled { opacity: .4; cursor: default; }

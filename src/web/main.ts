@@ -360,8 +360,8 @@ function render(): void {
     <aside class="sidebar${state.channelDrawerOpen ? ' drawer-open' : ''}" id="channel-panel" aria-label="チャンネル">
       <div class="sidebar-head"><div class="brand-mark">f</div><div><p class="eyebrow">PRIVATE VAULT</p><h1>Fragment View</h1></div><button class="icon-button close-drawer" data-action="close-drawer" aria-label="チャンネルを閉じる">×</button></div>
       <div class="area-switch" role="group" aria-label="記事の範囲">
-        <button data-action="area" data-area="active" aria-pressed="${state.area === 'active'}">進行中</button>
-        <button data-action="area" data-area="archive" aria-pressed="${state.area === 'archive'}">アーカイブ</button>
+        <button data-action="area" data-area="active" aria-pressed="${state.area === 'active'}">General</button>
+        <button data-action="area" data-area="archive" aria-pressed="${state.area === 'archive'}">Archive</button>
       </div>
       <div class="sidebar-section"><div class="section-heading"><span>フォルダ</span><span class="section-count">${state.channels.items.length}${state.channels.cursor ? '+' : ''}</span></div>
         <button class="channel-row${state.folder === null ? ' selected' : ''}" data-action="select-folder" data-folder=""><span class="channel-hash">⌂</span><span class="channel-name">すべての記事</span></button>
@@ -370,17 +370,17 @@ function render(): void {
         ${state.channels.cursor ? `<button class="subtle-button" data-action="load-channels" ${state.channels.loading ? 'disabled' : ''}>${state.channels.loading ? '読み込み中…' : 'フォルダをもっと見る'}</button>` : ''}
       </div>
       <div class="sidebar-section tags-section"><div class="section-heading"><span>タグ</span><span class="section-count">${state.tags.items.length}${state.tags.cursor ? '+' : ''}</span></div>
-        <button class="tag-mode-button" data-action="toggle-tag-mode" aria-label="タグ条件: ${state.tagMode === 'AND' ? 'すべて含む' : 'いずれかを含む'}。クリックで切り替え">${state.tagMode} · ${state.tagMode === 'AND' ? 'すべて含む' : 'いずれかを含む'}</button>
+        <div class="tag-controls"><button class="tag-mode-button" data-action="toggle-tag-mode" aria-label="タグ条件: ${state.tagMode === 'AND' ? 'すべて含む' : 'いずれかを含む'}。クリックで切り替え">${state.tagMode}</button><button class="tag-mode-button" data-action="clear-tags" aria-label="タグの選択をすべて解除" ${state.selectedTags.size === 0 ? 'disabled' : ''}>選択解除</button></div>
         ${tagOptions || (state.tags.loading ? '<p class="side-note">読み込み中…</p>' : '<p class="side-note">タグはありません</p>')}
         ${state.tags.error ? `<p class="side-error">${escapeHtml(state.tags.error)}</p><button class="subtle-button" data-action="load-tags">再試行</button>` : ''}
         ${state.tags.cursor ? `<button class="subtle-button" data-action="load-tags" ${state.tags.loading ? 'disabled' : ''}>${state.tags.loading ? '読み込み中…' : 'タグをもっと見る'}</button>` : ''}
       </div>
-      <div class="sidebar-foot">読み取り専用 · ${state.area === 'active' ? '進行中' : 'アーカイブ'}</div>
+      <div class="sidebar-foot">読み取り専用 · ${state.area === 'active' ? 'General' : 'Archive'}</div>
     </aside>
     ${state.channelDrawerOpen ? '<button class="drawer-scrim" data-action="close-drawer" aria-label="メニューを閉じる"></button>' : ''}
     <main class="main-panel">
       <header class="topbar"><button class="icon-button menu-button" data-action="open-drawer" aria-label="チャンネル一覧を開く" aria-expanded="${state.channelDrawerOpen}" aria-controls="channel-panel">☰</button>
-        <div class="current-channel"><strong>${escapeHtml(state.folder ?? 'すべての記事')}</strong><span class="area-badge">${state.area === 'active' ? '進行中' : 'アーカイブ'}</span></div>
+        <div class="current-channel"><strong>${escapeHtml(state.folder ?? 'すべての記事')}</strong><span class="area-badge">${state.area === 'active' ? 'General' : 'Archive'}</span></div>
         <span class="topbar-spacer"></span><span class="vault-status"><i></i>プライベート</span><button class="icon-button search-toggle" data-action="open-search" aria-label="記事検索を開く" aria-expanded="${state.searchOpen}" aria-controls="search-panel">${searchIcon}</button>
       </header>
       ${activeFilters ? `<div class="active-filters">${state.folder ? `<button data-action="clear-folder">${escapeHtml(state.folder)} <span>×</span></button>` : ''}${[...state.selectedTags].map((tag) => `<button data-action="clear-tag" data-tag="${escapeHtml(tag)}" aria-label="${escapeHtml(tag)} の絞り込みを解除"># ${escapeHtml(tag)} <span>×</span></button>`).join('')}<button class="clear-all" data-action="clear-filters">条件をクリア</button></div>` : ''}
@@ -450,6 +450,9 @@ app.addEventListener('click', (event) => {
     resetFeed();
   } else if (action === 'toggle-tag-mode') {
     state.tagMode = state.tagMode === 'AND' ? 'OR' : 'AND';
+    resetFeed();
+  } else if (action === 'clear-tags') {
+    state.selectedTags.clear();
     resetFeed();
   } else if (action === 'clear-tag') {
     state.selectedTags.delete(target.dataset.tag ?? '');

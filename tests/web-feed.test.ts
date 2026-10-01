@@ -88,6 +88,15 @@ it('toggles multiple tags, switches AND/OR, and clears one selection without los
   click('.tag-option[data-tag="B"]');
   await vi.waitFor(() => expect(calls.at(-1)?.searchParams.getAll('tag')).toEqual([]));
   expect(calls.at(-1)?.searchParams.has('cursor')).toBe(false);
+  click('.tag-option[data-tag="A"]');
+  click('.tag-option[data-tag="B"]');
+  await vi.waitFor(() => expect(document.querySelectorAll('.tag-option[aria-pressed="true"]')).toHaveLength(2));
+  click('[data-action="clear-tags"]');
+  await vi.waitFor(() => expect(calls.at(-1)?.searchParams.getAll('tag')).toEqual([]));
+  expect(calls.at(-1)?.searchParams.get('tagMode')).toBe('OR');
+  expect(document.querySelectorAll('.tag-option[aria-pressed="true"]')).toHaveLength(0);
+  expect(document.querySelector<HTMLButtonElement>('[data-action="clear-tags"]')!.disabled).toBe(true);
+
   vi.unstubAllGlobals();
 });
 
