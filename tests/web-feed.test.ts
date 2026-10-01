@@ -254,3 +254,35 @@ it('ignores a search response that arrives after closing and reopening search', 
   expect(document.querySelector<HTMLInputElement>('#search-input')!.value).toBe('');
   vi.unstubAllGlobals();
 });
+
+it('searches tags on the server without changing selected tags or the article feed', async () => {
+  document.body.innerHTML = '<div id="app"></div>';
+  const calls: URL[] = [];
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+    const parsed = new URL(url, 'https://viewer.example');
+    calls.push(parsed);
+    return Response.json({ items: parsed.pathname === '/api/tags' ? [{ name: parsed.searchParams.get('q') || '選択済み', count: 1 }] : [], revision: 1, nextCursor: null });
+  }));
+  vi.resetModules();
+  await import('../src/web/main');
+  await vi.waitFor(() => expect(document.querySelector('.tag-option')).not.toBeNull());
+  document.querySelector<HTMLButtonElement>('.tag-option')!.click();
+  await vi.waitFor(() => expect(document.querySelector('.loading-row')).toBeNull());
+  const feedRequests = calls.filter(url => url.pathname === '/api/articles').length;
+  const input = document.querySelector<HTMLInputElement>('#tag-search-input')!;
+  input.value = '音';
+  input.focus();
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+  document.querySelector<HTMLInputElement>('#tag-search-input')!.value = '音楽';
+  document.querySelector('#tag-search-input')!.dispatchEvent(new Event('input', { bubbles: true }));
+  await vi.waitFor(() => expect(document.querySelector('.tag-option[data-tag="音楽"]')).not.toBeNull());
+  expect(calls.filter(url => url.pathname === '/api/tags').at(-1)?.searchParams.get('q')).toBe('音楽');
+  expect(calls.some(url => url.searchParams.get('q') === '音')).toBe(false);
+  expect(calls.filter(url => url.pathname === '/api/articles')).toHaveLength(feedRequests);
+  expect(document.querySelector('[data-action="clear-tag"][data-tag="選択済み"]')).not.toBeNull();
+  expect(document.activeElement?.id).toBe('tag-search-input');
+  document.querySelector<HTMLInputElement>('#tag-search-input')!.value = '';
+  document.querySelector('#tag-search-input')!.dispatchEvent(new Event('input', { bubbles: true }));
+  await vi.waitFor(() => expect(document.querySelector('.tag-option[aria-pressed="true"]')).not.toBeNull());
+  vi.unstubAllGlobals();
+});

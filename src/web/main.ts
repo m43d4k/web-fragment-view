@@ -14,6 +14,7 @@ interface State extends FeedState {
   area: Area;
   folder: string | null;
   selectedTags: Set<string>;
+  tagQuery: string;
   tagMode: 'AND' | 'OR';
   query: string;
   dateFrom: string;
@@ -43,6 +44,7 @@ const state: State = {
   area: 'active',
   folder: null,
   selectedTags: new Set(),
+  tagQuery: '',
   tagMode: 'AND',
   query: '',
   dateFrom: '',
@@ -82,6 +84,7 @@ if (!app) throw new Error('アプリの表示領域がありません。');
 
 let metadataControllers: Array<{ kind: 'channels' | 'tags'; area: Area; controller: AbortController }> = [];
 let renderedQuery: string | null = null;
+let tagSearchTimer: ReturnType<typeof setTimeout> | undefined;
 
 function escapeHtml(value: string): string {
   return value.replace(/[&<>"']/g, (char) => ({
@@ -156,6 +159,7 @@ function selectFolder(folder: string | null): void {
 }
 
 async function loadMetadata<T>(kind: 'channels' | 'tags', reset = false): Promise<void> {
+  if (kind === 'tags' && reset) clearTimeout(tagSearchTimer);
   const metadata = state[kind] as Metadata<T>;
   if (!reset && (metadata.loading || (metadata.cursor === null && metadata.items.length > 0))) return;
   if (reset) {
@@ -173,10 +177,11 @@ async function loadMetadata<T>(kind: 'channels' | 'tags', reset = false): Promis
   const controller = new AbortController();
   const requestedArea = state.area;
   const requestedFolder = kind === 'tags' ? state.folder : null;
+  const requestedQuery = kind === 'tags' ? state.tagQuery : null;
   const isCurrent = () => !controller.signal.aborted && state[kind] === metadata && requestedArea === state.area
-    && (kind !== 'tags' || requestedFolder === state.folder);
+    && (kind !== 'tags' || (requestedFolder === state.folder && requestedQuery === state.tagQuery));
   metadataControllers.push({ kind, area: requestedArea, controller });
-  const params = { area: requestedArea, folder: requestedFolder, cursor: metadata.cursor };
+  const params = { area: requestedArea, folder: requestedFolder, q: requestedQuery, cursor: metadata.cursor };
   try {
     const page = await request<Page<T>>(`/api/${kind}${queryString(params)}`, controller.signal);
     if (!isCurrent()) return;
@@ -344,6 +349,9 @@ function render(): void {
   const searchScroll = searchFeed.resetScroll ? 0 : app.querySelector<HTMLElement>('#search-scroll')?.scrollTop ?? 0;
   state.resetScroll = false;
   searchFeed.resetScroll = false;
+  const tagInput = app.querySelector<HTMLInputElement>('#tag-search-input');
+  const tagFocused = document.activeElement === tagInput;
+  const tagSelection = tagFocused ? [tagInput?.selectionStart ?? 0, tagInput?.selectionEnd ?? 0] : null;
   const searchInput = app.querySelector<HTMLInputElement>('#search-input');
   const searchDraft = renderedQuery === state.query ? searchInput?.value : undefined;
   const searchFocused = document.activeElement === searchInput;
@@ -370,8 +378,9 @@ function render(): void {
         ${state.channels.cursor ? `<button class="subtle-button" data-action="load-channels" ${state.channels.loading ? 'disabled' : ''}>${state.channels.loading ? '読み込み中…' : 'フォルダをもっと見る'}</button>` : ''}
       </div>
       <div class="sidebar-section tags-section"><div class="section-heading"><span>タグ</span><span class="section-count">${state.tags.items.length}${state.tags.cursor ? '+' : ''}</span></div>
+        <label class="sr-only" for="tag-search-input">タグを検索</label><input class="tag-search-input" id="tag-search-input" type="search" value="${escapeHtml(state.tagQuery)}" placeholder="タグを検索…" autocomplete="off" maxlength="100" />
         <div class="tag-controls"><button class="tag-mode-button" data-action="toggle-tag-mode" aria-label="タグ条件: ${state.tagMode === 'AND' ? 'すべて含む' : 'いずれかを含む'}。クリックで切り替え">${state.tagMode}</button><button class="tag-mode-button" data-action="clear-tags" aria-label="タグの選択をすべて解除" ${state.selectedTags.size === 0 ? 'disabled' : ''}>Clear</button></div>
-        ${tagOptions || (state.tags.loading ? '<p class="side-note">読み込み中…</p>' : '<p class="side-note">タグはありません</p>')}
+        ${tagOptions || (state.tags.loading ? '<p class="side-note">読み込み中…</p>' : `<p class="side-note">${state.tagQuery ? '一致するタグはありません' : 'タグはありません'}</p>`)}
         ${state.tags.error ? `<p class="side-error">${escapeHtml(state.tags.error)}</p><button class="subtle-button" data-action="load-tags">再試行</button>` : ''}
         ${state.tags.cursor ? `<button class="subtle-button" data-action="load-tags" ${state.tags.loading ? 'disabled' : ''}>${state.tags.loading ? '読み込み中…' : 'タグをもっと見る'}</button>` : ''}
       </div>
@@ -411,6 +420,11 @@ function render(): void {
   if (newSearch && searchFocused) {
     newSearch.focus({ preventScroll: true });
     if (selection) newSearch.setSelectionRange(selection[0], selection[1]);
+  }
+  if (tagFocused) {
+    const newTagInput = app.querySelector<HTMLInputElement>('#tag-search-input')!;
+    newTagInput.focus({ preventScroll: true });
+    if (tagSelection) newTagInput.setSelectionRange(tagSelection[0], tagSelection[1]);
   }
   app.querySelector<HTMLElement>('#feed-scroll')!.scrollTop = feedScroll;
   const searchScroller = app.querySelector<HTMLElement>('#search-scroll');
@@ -478,6 +492,18 @@ app.addEventListener('click', (event) => {
   else if (action === 'read-more') void loadArticleDetail(target.dataset.id ?? '', feed);
   else if (action === 'expand') { feed.expandedIds.add(target.dataset.id ?? ''); render(); }
   else if (action === 'collapse') { feed.expandedIds.delete(target.dataset.id ?? ''); render(); }
+});
+
+app.addEventListener('input', (event) => {
+  const input = event.target as HTMLInputElement;
+  if (input.id !== 'tag-search-input') return;
+  clearTimeout(tagSearchTimer);
+  state.tagQuery = input.value;
+  metadataControllers.filter(entry => entry.kind === 'tags').forEach(entry => entry.controller.abort());
+  state.tags = emptyMetadata();
+  state.tags.loading = true;
+  render();
+  tagSearchTimer = setTimeout(() => void loadMetadata('tags', true), 250);
 });
 
 app.addEventListener('change', (event) => {

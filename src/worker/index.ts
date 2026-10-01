@@ -124,16 +124,17 @@ async function listArticles(url: URL, env: Env): Promise<Response> {
 async function metadata(url: URL, env: Env, kind: 'channels' | 'tags'): Promise<Response> {
   const area = areaFrom(url);
   const folder = kind === 'tags' ? url.searchParams.get('folder') : null;
-  if ((folder?.length ?? 0) > 512) return invalid('絞り込み条件が不正です。');
-  const scope = JSON.stringify(kind === 'tags' ? [kind, area, folder] : [kind, area]);
+  const q = kind === 'tags' ? url.searchParams.get('q') ?? '' : '';
+  if ((folder?.length ?? 0) > 512 || q.length > 100) return invalid('絞り込み条件が不正です。');
+  const scope = JSON.stringify(kind === 'tags' ? [kind, area, folder, q] : [kind, area]);
   const cursor = decodeCursor(url.searchParams.get('cursor'), scope);
   if (cursor && cursor.after.length !== 1) return invalid('カーソルが不正です。');
   const after = cursor?.after[0] ?? '';
   const sql = kind === 'channels'
     ? 'SELECT folder,area,count(*) AS count FROM articles WHERE area=? AND folder>? GROUP BY folder,area ORDER BY folder LIMIT 51'
     : `SELECT t.tag AS name,count(*) AS count FROM article_tags t JOIN articles a ON a.id=t.article_id
-      WHERE a.area=?${folder === null ? '' : ' AND a.folder=?'} AND t.tag>? GROUP BY t.tag ORDER BY t.tag LIMIT 51`;
-  const params = kind === 'channels' ? [area, after] : folder === null ? [area, after] : [area, folder, after];
+      WHERE a.area=?${folder === null ? '' : ' AND a.folder=?'}${q ? ' AND instr(lower(t.tag),lower(?))>0' : ''} AND t.tag>? GROUP BY t.tag ORDER BY t.tag LIMIT 51`;
+  const params = kind === 'channels' ? [area, after] : [area, ...(folder === null ? [] : [folder]), ...(q ? [q] : []), after];
   const { rows, revision } = await readPage(env.DB, sql, params, cursor);
   const items = rows.slice(0, 50);
   const last = items.at(-1);

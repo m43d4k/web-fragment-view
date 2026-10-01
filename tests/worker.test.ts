@@ -33,7 +33,7 @@ describe('read API', () => {
   it('scopes tag counts by area and optional folder, and binds paginated cursors to that scope', async () => {
     const db = env.DB;
     const fixtures = [
-      ['tag-a', 'active', 'tag-scope', ['shared', 'only-a']],
+      ['tag-a', 'active', 'tag-scope', ['shared', 'only-a', 'wild%_tag']],
       ['tag-b', 'active', 'tag-scope', ['shared']],
       ['tag-c', 'active', 'elsewhere', ['shared', 'only-other']],
       ['tag-d', 'archive', 'tag-scope', ['shared', 'only-archive']],
@@ -45,7 +45,11 @@ describe('read API', () => {
             JSON.stringify(tags), '[]', id, id, id).run();
       }
       const scoped = await (await request('/api/tags?area=active&folder=tag-scope')).json() as any;
-      expect(scoped.items).toEqual([{ name: 'only-a', count: 1 }, { name: 'shared', count: 2 }]);
+      expect(scoped.items).toEqual([{ name: 'only-a', count: 1 }, { name: 'shared', count: 2 }, { name: 'wild%_tag', count: 1 }]);
+      const matches = await (await request('/api/tags?area=active&folder=tag-scope&q=only')).json() as any;
+      expect(matches.items).toEqual([{ name: 'only-a', count: 1 }]);
+      const literalWildcard = await (await request('/api/tags?area=active&folder=tag-scope&q=%25_')).json() as any;
+      expect(literalWildcard.items).toEqual([{ name: 'wild%_tag', count: 1 }]);
       const all = await (await request('/api/tags?area=active')).json() as any;
       expect(all.items).toContainEqual({ name: 'only-other', count: 1 });
       expect(all.items.find((item: any) => item.name === 'shared').count).toBe(3);
@@ -62,6 +66,9 @@ describe('read API', () => {
       const second = await (await request(`/api/tags?area=active&folder=tag-pages&cursor=${cursor}`)).json() as any;
       expect(second.items).toHaveLength(2);
       expect((await request(`/api/tags?area=active&folder=tag-scope&cursor=${cursor}`)).status).toBe(400);
+      const filtered = await (await request('/api/tags?area=active&folder=tag-pages&q=page-')).json() as any;
+      expect(filtered.items).toHaveLength(50);
+      expect((await request(`/api/tags?area=active&folder=tag-pages&q=page-0&cursor=${encodeURIComponent(filtered.nextCursor)}`)).status).toBe(400);
     } finally {
       for (const [id] of fixtures) await db.prepare('DELETE FROM articles WHERE id = ?').bind(id).run();
       await db.prepare('DELETE FROM articles WHERE id = ?').bind('tag-pages').run();
