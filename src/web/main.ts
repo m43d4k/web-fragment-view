@@ -333,7 +333,7 @@ function render(): void {
         <form class="search-form" id="search-form"><label class="sr-only" for="search-input">記事を検索</label><input id="search-input" name="q" type="search" value="${escapeHtml(state.query)}" placeholder="記事を検索…" autocomplete="off" /><button type="submit" aria-label="検索">⌕</button></form>
       </section>
       ${filtered ? `<div class="active-filters">${state.folder ? `<button data-action="clear-folder"># ${escapeHtml(state.folder)} <span>×</span></button>` : ''}${[...state.selectedTags].map((tag) => `<button data-action="clear-tag" data-tag="${escapeHtml(tag)}" aria-label="${escapeHtml(tag)} の絞り込みを解除"># ${escapeHtml(tag)} <span>×</span></button>`).join('')}${state.query ? `<button data-action="clear-query">検索: ${escapeHtml(state.query)} <span>×</span></button>` : ''}<button class="clear-all" data-action="clear-filters">条件をクリア</button></div>` : ''}
-      <div class="feed-scroll" id="feed-scroll" aria-live="polite">
+      <div class="feed-scroll" id="feed-scroll" aria-live="polite"><div class="feed-content">
         ${state.revisionMismatch ? `<div class="notice warning" role="alert"><strong>一覧が更新されました</strong><p>記事の追加や移動があったため、ページを続けて表示できません。</p><button class="primary-button" data-action="reset-feed">最新の一覧を読み込む</button></div>` : ''}
         ${state.feedError ? `<div class="notice error" role="alert"><strong>記事を読み込めませんでした</strong><p>${escapeHtml(state.feedError)}</p><button class="primary-button" data-action="retry-feed">再試行</button></div>` : ''}
         ${hasNoResults ? `<div class="empty-state"><div class="empty-icon">⌕</div><h3>${filtered ? '記事が見つかりません' : 'まだ記事がありません'}</h3><p>${filtered ? '検索語や絞り込み条件を変えてみてください。' : '記事が同期されると、ここに表示されます。'}</p>${filtered ? '<button class="text-action" data-action="clear-filters">条件をクリア</button>' : ''}</div>` : ''}
@@ -342,7 +342,7 @@ function render(): void {
         ${state.articles.length >= ARTICLE_WINDOW_LIMIT ? `<div class="notice limit-notice"><strong>表示件数をいったん区切りました</strong><p>一度に保持する記事は${ARTICLE_WINDOW_LIMIT}件までです。${state.cursor ? '続けて古い記事を表示すると、今の一覧を入れ替えます。' : 'これより古い記事はありません。'}</p>${state.cursor ? '<button class="primary-button" data-action="load-older-window">さらに古い記事を表示</button>' : ''} <button class="text-action" data-action="reset-feed">最新から読み直す</button></div>` : ''}
         ${state.cursor && state.articles.length < ARTICLE_WINDOW_LIMIT && !state.loadingFeed && !state.revisionMismatch ? '<button class="load-more" data-action="load-more">さらに記事を読み込む</button>' : ''}
         ${noMore ? '<p class="end-of-feed">— ここまでです —</p>' : ''}
-      </div>
+      </div></div>
     </main>
   </div>`;
   // Reuse unchanged cards before attaching the fragment, so loaded thumbnails
