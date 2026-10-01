@@ -350,7 +350,7 @@ function render(): void {
   const selection = searchFocused ? [searchInput?.selectionStart ?? 0, searchInput?.selectionEnd ?? 0] : null;
   const oldPosts = new Map(Array.from(app.querySelectorAll<HTMLElement>('.post')).map(post => [`${post.closest('.feed-scroll')?.id}:${post.dataset.id}`, post]));
   const channelRows = state.channels.items.map((channel) => `<button class="channel-row${state.folder === channel.folder ? ' selected' : ''}" data-action="select-folder" data-folder="${escapeHtml(channel.folder)}">
-    <span class="channel-hash">#</span><span class="channel-name">${escapeHtml(channel.folder)}</span><span class="channel-count">${channel.count}</span>
+    <span class="channel-name">${escapeHtml(channel.folder)}</span><span class="channel-count">${channel.count}</span>
   </button>`).join('');
   const tagOptions = state.tags.items.map((tag) => `<button class="tag-option${state.selectedTags.has(tag.name) ? ' selected' : ''}" data-action="select-tag" data-tag="${escapeHtml(tag.name)}" aria-pressed="${state.selectedTags.has(tag.name)}"># ${escapeHtml(tag.name)} <span>${tag.count}</span></button>`).join('');
   const activeFilters = state.folder || state.selectedTags.size > 0;
@@ -380,14 +380,14 @@ function render(): void {
     ${state.channelDrawerOpen ? '<button class="drawer-scrim" data-action="close-drawer" aria-label="メニューを閉じる"></button>' : ''}
     <main class="main-panel">
       <header class="topbar"><button class="icon-button menu-button" data-action="open-drawer" aria-label="チャンネル一覧を開く" aria-expanded="${state.channelDrawerOpen}" aria-controls="channel-panel">☰</button>
-        <div class="current-channel"><span class="channel-hash">#</span><strong>${escapeHtml(state.folder ?? 'すべての記事')}</strong><span class="area-badge">${state.area === 'active' ? '進行中' : 'アーカイブ'}</span></div>
+        <div class="current-channel"><strong>${escapeHtml(state.folder ?? 'すべての記事')}</strong><span class="area-badge">${state.area === 'active' ? '進行中' : 'アーカイブ'}</span></div>
         <span class="topbar-spacer"></span><span class="vault-status"><i></i>プライベート</span><button class="icon-button search-toggle" data-action="open-search" aria-label="記事検索を開く" aria-expanded="${state.searchOpen}" aria-controls="search-panel">${searchIcon}</button>
       </header>
-      ${activeFilters ? `<div class="active-filters">${state.folder ? `<button data-action="clear-folder"># ${escapeHtml(state.folder)} <span>×</span></button>` : ''}${[...state.selectedTags].map((tag) => `<button data-action="clear-tag" data-tag="${escapeHtml(tag)}" aria-label="${escapeHtml(tag)} の絞り込みを解除"># ${escapeHtml(tag)} <span>×</span></button>`).join('')}<button class="clear-all" data-action="clear-filters">条件をクリア</button></div>` : ''}
+      ${activeFilters ? `<div class="active-filters">${state.folder ? `<button data-action="clear-folder">${escapeHtml(state.folder)} <span>×</span></button>` : ''}${[...state.selectedTags].map((tag) => `<button data-action="clear-tag" data-tag="${escapeHtml(tag)}" aria-label="${escapeHtml(tag)} の絞り込みを解除"># ${escapeHtml(tag)} <span>×</span></button>`).join('')}<button class="clear-all" data-action="clear-filters">条件をクリア</button></div>` : ''}
       ${feedMarkup(state, Boolean(filtered))}
     </main>
     ${state.searchOpen ? `<section class="search-panel" id="search-panel" aria-label="記事検索">
-      <header class="topbar search-heading"><button class="icon-button search-back" data-action="close-search" aria-label="検索を終了">&lt;</button><div class="current-channel"><span class="channel-hash">#</span><strong>${escapeHtml(state.folder ?? 'すべての記事')}</strong></div><span class="topbar-spacer"></span><button class="icon-button search-close" data-action="close-search" aria-label="検索を終了">×</button></header>
+      <header class="topbar search-heading"><button class="icon-button search-back" data-action="close-search" aria-label="検索を終了">&lt;</button><div class="current-channel"><strong>${escapeHtml(state.folder ?? 'すべての記事')}</strong></div><span class="topbar-spacer"></span><button class="icon-button search-close" data-action="close-search" aria-label="検索を終了">×</button></header>
       <div class="search-controls"><form class="search-form" id="search-form"><label class="sr-only" for="search-input">記事を検索</label><input id="search-input" name="q" type="search" value="${escapeHtml(state.query)}" placeholder="記事を検索…" autocomplete="off" /><button type="submit" aria-label="検索">${searchIcon}</button></form>
         <div class="date-filter" role="group" aria-label="記事の期間（日本時間）">
           <label class="sr-only" for="date-from">開始日（日本時間）</label><input id="date-from" type="date" value="${escapeHtml(state.dateFrom)}" aria-label="開始日（日本時間）" />
