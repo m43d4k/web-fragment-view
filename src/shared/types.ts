@@ -31,7 +31,7 @@ export interface Page<T> {
 }
 
 export interface Channel { area: Area; folder: string; count: number }
-export interface Tag { name: string; count: number }
+export interface Tag { name: string; count: number; available?: boolean }
 export interface ApiError { error: string; code: string }
 
 export interface SyncArticle extends Omit<Article, 'truncated'> {

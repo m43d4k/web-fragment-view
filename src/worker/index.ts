@@ -124,19 +124,39 @@ async function listArticles(url: URL, env: Env): Promise<Response> {
 async function metadata(url: URL, env: Env, kind: 'channels' | 'tags'): Promise<Response> {
   const area = areaFrom(url);
   const folder = kind === 'tags' ? url.searchParams.get('folder') : null;
-  const q = kind === 'tags' ? url.searchParams.get('q') ?? '' : '';
-  if ((folder?.length ?? 0) > 512 || q.length > 100) return invalid('絞り込み条件が不正です。');
-  const scope = JSON.stringify(kind === 'tags' ? [kind, area, folder, q] : [kind, area]);
+  const rawQ = kind === 'tags' ? url.searchParams.get('q') ?? '' : '';
+  const q = rawQ.trim().replace(/^#+/, '');
+  const rawTags = kind === 'tags' ? url.searchParams.getAll('tag') : [];
+  const tagMode = kind === 'tags' ? url.searchParams.get('tagMode') ?? 'AND' : 'AND';
+  if ((folder?.length ?? 0) > 512 || rawQ.length > 100 || rawTags.length > 64 ||
+    rawTags.some(tag => tag.length < 1 || tag.length > 100)) return invalid('絞り込み条件が不正です。');
+  if (kind === 'tags' && tagMode !== 'AND' && tagMode !== 'OR') return invalid('タグの絞り込み方法が不正です。');
+  const selected = [...new Set(rawTags)].sort();
+  const scope = JSON.stringify(kind === 'tags' ? [kind, area, folder, q, selected, tagMode] : [kind, area]);
   const cursor = decodeCursor(url.searchParams.get('cursor'), scope);
   if (cursor && cursor.after.length !== 1) return invalid('カーソルが不正です。');
   const after = cursor?.after[0] ?? '';
+  const candidateScopeWhere = `avail.area=?${folder === null ? '' : ' AND avail.folder=?'}`;
+  const selectedMissing = selected.length ? `NOT EXISTS (SELECT 1 FROM (SELECT value AS tag FROM json_each(?)) chosen
+    WHERE NOT EXISTS (SELECT 1 FROM article_tags chosen_tag WHERE chosen_tag.article_id=avail.id AND chosen_tag.tag=chosen.tag))` : '1=1';
   const sql = kind === 'channels'
     ? 'SELECT folder,area,count(*) AS count FROM articles WHERE area=? AND folder>? GROUP BY folder,area ORDER BY folder LIMIT 51'
-    : `SELECT t.tag AS name,count(*) AS count FROM article_tags t JOIN articles a ON a.id=t.article_id
-      WHERE a.area=?${folder === null ? '' : ' AND a.folder=?'}${q ? ' AND instr(lower(t.tag),lower(?))>0' : ''} AND t.tag>? GROUP BY t.tag ORDER BY t.tag LIMIT 51`;
-  const params = kind === 'channels' ? [area, after] : [area, ...(folder === null ? [] : [folder]), ...(q ? [q] : []), after];
+    : `SELECT t.tag AS name,count(*) AS count,
+      CASE WHEN ${selected.length ? `t.tag IN (${selected.map(() => '?').join(',')})` : '0'} OR ?='OR' THEN 1
+      WHEN EXISTS (SELECT 1 FROM article_tags candidate JOIN articles avail ON avail.id=candidate.article_id
+      WHERE candidate.tag=t.tag AND ${candidateScopeWhere} AND ${selectedMissing}) THEN 1 ELSE 0 END AS available
+      FROM article_tags t JOIN articles a ON a.id=t.article_id
+      WHERE a.area=?${folder === null ? '' : ' AND a.folder=?'}${q ? ` AND (instr(lower(t.tag),lower(?))>0${selected.length ? ` OR t.tag IN (${selected.map(() => '?').join(',')})` : ''})` : ''}
+      AND t.tag>? GROUP BY t.tag ORDER BY t.tag LIMIT 51`;
+  const params = kind === 'channels' ? [area, after] : [
+    ...(selected.length ? selected : []), tagMode,
+    area, ...(folder === null ? [] : [folder]),
+    ...(selected.length ? [JSON.stringify(selected)] : []),
+    area, ...(folder === null ? [] : [folder]), ...(q ? [q] : []), ...(q && selected.length ? selected : []), after,
+  ];
   const { rows, revision } = await readPage(env.DB, sql, params, cursor);
-  const items = rows.slice(0, 50);
+  const items = rows.slice(0, 50).map((row: Row) => kind === 'tags'
+    ? { name: row.name, count: row.count, available: !!row.available } : row);
   const last = items.at(-1);
   return json({ items, revision, nextCursor: rows.length > 50 && last ? encodeCursor({ revision, scope, after: [last[kind === 'channels' ? 'folder' : 'name']] }) : null });
 }

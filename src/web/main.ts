@@ -178,10 +178,13 @@ async function loadMetadata<T>(kind: 'channels' | 'tags', reset = false): Promis
   const requestedArea = state.area;
   const requestedFolder = kind === 'tags' ? state.folder : null;
   const requestedQuery = kind === 'tags' ? state.tagQuery : null;
+  const requestedTags = [...state.selectedTags].sort();
+  const requestedMode = state.tagMode;
   const isCurrent = () => !controller.signal.aborted && state[kind] === metadata && requestedArea === state.area
-    && (kind !== 'tags' || (requestedFolder === state.folder && requestedQuery === state.tagQuery));
+    && (kind !== 'tags' || (requestedFolder === state.folder && requestedQuery === state.tagQuery
+      && requestedMode === state.tagMode && JSON.stringify(requestedTags) === JSON.stringify([...state.selectedTags].sort())));
   metadataControllers.push({ kind, area: requestedArea, controller });
-  const params = { area: requestedArea, folder: requestedFolder, q: requestedQuery, cursor: metadata.cursor };
+  const params = { area: requestedArea, folder: requestedFolder, q: requestedQuery, tag: kind === 'tags' ? requestedTags : [], tagMode: kind === 'tags' ? requestedMode : null, cursor: metadata.cursor };
   try {
     const page = await request<Page<T>>(`/api/${kind}${queryString(params)}`, controller.signal);
     if (!isCurrent()) return;
@@ -360,7 +363,15 @@ function render(): void {
   const channelRows = state.channels.items.map((channel) => `<button class="channel-row${state.folder === channel.folder ? ' selected' : ''}" data-action="select-folder" data-folder="${escapeHtml(channel.folder)}">
     <span class="channel-name">${escapeHtml(channel.folder)}</span><span class="channel-count">${channel.count}</span>
   </button>`).join('');
-  const tagOptions = state.tags.items.map((tag) => `<button class="tag-option${state.selectedTags.has(tag.name) ? ' selected' : ''}" data-action="select-tag" data-tag="${escapeHtml(tag.name)}" aria-pressed="${state.selectedTags.has(tag.name)}"># ${escapeHtml(tag.name)} <span>${tag.count}</span></button>`).join('');
+  const visibleTags: Array<{ name: string; count?: number; available?: boolean }> = [
+    ...[...state.selectedTags].filter(name => !state.tags.items.some(tag => tag.name === name)).map(name => ({ name })),
+    ...state.tags.items,
+  ];
+  const tagOptions = visibleTags.map((tag) => {
+    const selected = state.selectedTags.has(tag.name);
+    const unavailable = !selected && tag.available === false;
+    return `<button class="tag-option${selected ? ' selected' : ''}" data-action="select-tag" data-tag="${escapeHtml(tag.name)}" aria-pressed="${selected}" ${unavailable ? 'disabled title="該当する記事がありません"' : ''}># ${escapeHtml(tag.name)} ${tag.count === undefined ? '' : `<span>${tag.count}</span>`}</button>`;
+  }).join('');
   const activeFilters = state.folder || state.selectedTags.size > 0;
   const filtered = activeFilters;
   const template = document.createElement('template');
@@ -462,15 +473,19 @@ app.addEventListener('click', (event) => {
     if (state.selectedTags.has(tag)) state.selectedTags.delete(tag);
     else state.selectedTags.add(tag);
     resetFeed();
+    void loadMetadata('tags', true);
   } else if (action === 'toggle-tag-mode') {
     state.tagMode = state.tagMode === 'AND' ? 'OR' : 'AND';
     resetFeed();
+    void loadMetadata('tags', true);
   } else if (action === 'clear-tags') {
     state.selectedTags.clear();
     resetFeed();
+    void loadMetadata('tags', true);
   } else if (action === 'clear-tag') {
     state.selectedTags.delete(target.dataset.tag ?? '');
     resetFeed();
+    void loadMetadata('tags', true);
   }
   else if (action === 'clear-folder') selectFolder(null);
   else if (action === 'open-search') { state.searchOpen = true; render(); app?.querySelector<HTMLInputElement>('#search-input')?.focus(); }

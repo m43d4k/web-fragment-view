@@ -73,25 +73,28 @@ it('toggles multiple tags, switches AND/OR, and clears one selection without los
   vi.resetModules();
   await import('../src/web/main');
   await vi.waitFor(() => expect(document.querySelectorAll('.tag-option')).toHaveLength(2));
-  const click = (selector: string) => document.querySelector<HTMLButtonElement>(selector)!.click();
-  click('.tag-option[data-tag="A"]');
+  const click = async (selector: string) => {
+    document.querySelector<HTMLButtonElement>(selector)!.click();
+    await vi.waitFor(() => expect(document.querySelectorAll('.tag-option')).toHaveLength(2));
+  };
+  await click('.tag-option[data-tag="A"]');
   await vi.waitFor(() => expect(calls.at(-1)?.searchParams.getAll('tag')).toEqual(['A']));
-  click('.tag-option[data-tag="B"]');
+  await click('.tag-option[data-tag="B"]');
   await vi.waitFor(() => expect(calls.at(-1)?.searchParams.getAll('tag')).toEqual(['A', 'B']));
   expect(calls.at(-1)?.searchParams.get('tagMode')).toBe('AND');
   expect(document.querySelectorAll('.tag-option[aria-pressed="true"]')).toHaveLength(2);
-  click('[data-action="toggle-tag-mode"]');
+  await click('[data-action="toggle-tag-mode"]');
   await vi.waitFor(() => expect(calls.at(-1)?.searchParams.get('tagMode')).toBe('OR'));
   expect(calls.at(-1)?.searchParams.getAll('tag')).toEqual(['A', 'B']);
-  click('[data-action="clear-tag"][data-tag="A"]');
+  await click('[data-action="clear-tag"][data-tag="A"]');
   await vi.waitFor(() => expect(calls.at(-1)?.searchParams.getAll('tag')).toEqual(['B']));
-  click('.tag-option[data-tag="B"]');
+  await click('.tag-option[data-tag="B"]');
   await vi.waitFor(() => expect(calls.at(-1)?.searchParams.getAll('tag')).toEqual([]));
   expect(calls.at(-1)?.searchParams.has('cursor')).toBe(false);
-  click('.tag-option[data-tag="A"]');
-  click('.tag-option[data-tag="B"]');
+  await click('.tag-option[data-tag="A"]');
+  await click('.tag-option[data-tag="B"]');
   await vi.waitFor(() => expect(document.querySelectorAll('.tag-option[aria-pressed="true"]')).toHaveLength(2));
-  click('[data-action="clear-tags"]');
+  await click('[data-action="clear-tags"]');
   await vi.waitFor(() => expect(calls.at(-1)?.searchParams.getAll('tag')).toEqual([]));
   expect(calls.at(-1)?.searchParams.get('tagMode')).toBe('OR');
   expect(document.querySelectorAll('.tag-option[aria-pressed="true"]')).toHaveLength(0);
@@ -283,6 +286,38 @@ it('searches tags on the server without changing selected tags or the article fe
   expect(document.activeElement?.id).toBe('tag-search-input');
   document.querySelector<HTMLInputElement>('#tag-search-input')!.value = '';
   document.querySelector('#tag-search-input')!.dispatchEvent(new Event('input', { bubbles: true }));
+  await vi.waitFor(() => expect(calls.filter(url => url.pathname === '/api/tags').at(-1)?.searchParams.has('q')).toBe(false));
   await vi.waitFor(() => expect(document.querySelector('.tag-option[aria-pressed="true"]')).not.toBeNull());
+  vi.unstubAllGlobals();
+});
+
+it('refreshes tag availability with selection and mode, keeping selected tags visible during search', async () => {
+  document.body.innerHTML = '<div id="app"></div>';
+  const tagCalls: URL[] = [];
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+    const parsed = new URL(url, 'https://viewer.example');
+    if (parsed.pathname === '/api/tags') tagCalls.push(parsed);
+    const selected = parsed.searchParams.getAll('tag');
+    return Response.json({ items: parsed.pathname === '/api/tags' ? [
+      ...(!parsed.searchParams.get('q') ? [{ name: 'A', count: 1, available: true }] : []),
+      { name: 'B', count: 1, available: !selected.includes('A') || parsed.searchParams.get('tagMode') === 'OR' },
+    ] : [], revision: 1, nextCursor: null });
+  }));
+  vi.resetModules();
+  await import('../src/web/main');
+  await vi.waitFor(() => expect(document.querySelector('.tag-option[data-tag="A"]')).not.toBeNull());
+  document.querySelector<HTMLButtonElement>('.tag-option[data-tag="A"]')!.click();
+  await vi.waitFor(() => expect(document.querySelector<HTMLButtonElement>('.tag-option[data-tag="B"]')?.disabled).toBe(true));
+  expect(tagCalls.at(-1)?.searchParams.getAll('tag')).toEqual(['A']);
+  const input = document.querySelector<HTMLInputElement>('#tag-search-input')!;
+  input.value = 'B';
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+  await vi.waitFor(() => expect(tagCalls.at(-1)?.searchParams.get('q')).toBe('B'));
+  expect(document.querySelector('.tag-option[data-tag="A"][aria-pressed="true"]')).not.toBeNull();
+  document.querySelector<HTMLButtonElement>('[data-action="toggle-tag-mode"]')!.click();
+  await vi.waitFor(() => expect(document.querySelector<HTMLButtonElement>('.tag-option[data-tag="B"]')?.disabled).toBe(false));
+  expect(tagCalls.at(-1)?.searchParams.get('tagMode')).toBe('OR');
+  document.querySelector<HTMLButtonElement>('[data-action="clear-tags"]')!.click();
+  await vi.waitFor(() => expect(tagCalls.at(-1)?.searchParams.getAll('tag')).toEqual([]));
   vi.unstubAllGlobals();
 });

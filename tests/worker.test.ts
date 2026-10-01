@@ -45,13 +45,13 @@ describe('read API', () => {
             JSON.stringify(tags), '[]', id, id, id).run();
       }
       const scoped = await (await request('/api/tags?area=active&folder=tag-scope')).json() as any;
-      expect(scoped.items).toEqual([{ name: 'only-a', count: 1 }, { name: 'shared', count: 2 }, { name: 'wild%_tag', count: 1 }]);
+      expect(scoped.items).toEqual([{ name: 'only-a', count: 1, available: true }, { name: 'shared', count: 2, available: true }, { name: 'wild%_tag', count: 1, available: true }]);
       const matches = await (await request('/api/tags?area=active&folder=tag-scope&q=only')).json() as any;
-      expect(matches.items).toEqual([{ name: 'only-a', count: 1 }]);
+      expect(matches.items).toEqual([{ name: 'only-a', count: 1, available: true }]);
       const literalWildcard = await (await request('/api/tags?area=active&folder=tag-scope&q=%25_')).json() as any;
-      expect(literalWildcard.items).toEqual([{ name: 'wild%_tag', count: 1 }]);
+      expect(literalWildcard.items).toEqual([{ name: 'wild%_tag', count: 1, available: true }]);
       const all = await (await request('/api/tags?area=active')).json() as any;
-      expect(all.items).toContainEqual({ name: 'only-other', count: 1 });
+      expect(all.items).toContainEqual({ name: 'only-other', count: 1, available: true });
       expect(all.items.find((item: any) => item.name === 'shared').count).toBe(3);
       const empty = await (await request('/api/tags?area=active&folder=missing-folder')).json() as any;
       expect(empty.items).toEqual([]);
@@ -191,6 +191,43 @@ describe('read API', () => {
       '/api/articles?' + Array.from({ length: 65 }, () => 'tag=x').join('&'),
       '/api/articles?tagMode=XOR']) {
       expect((await request(path)).status).toBe(400);
+    }
+    for (const path of ['/api/tags?tag=', '/api/tags?tag=' + 'x'.repeat(101),
+      '/api/tags?' + Array.from({ length: 65 }, () => 'tag=x').join('&'), '/api/tags?tagMode=XOR']) {
+      expect((await request(path)).status).toBe(400);
+    }
+  });
+  it('includes selected tags in tag search and marks unavailable AND combinations', async () => {
+    const fixtures = [
+      ['avail-ab', ['alpha', 'beta']], ['avail-ac', ['alpha', 'common']],
+      ['avail-bc', ['beta', 'common']], ['avail-c', ['common']], ['avail-ghost', ['ghost']],
+      ['avail-outside', ['alpha', 'ghost']],
+    ] as const;
+    try {
+      for (const [id, tags] of fixtures) {
+        await env.DB.prepare('INSERT INTO articles (id,path,area,folder,title,created_at,updated_at,body,tags_json,attachments_json,hash,search_text,search_tokens) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)')
+        .bind(id, `active/${id === 'avail-outside' ? 'other-folder' : 'tag-availability'}/${id}.md`, 'active', id === 'avail-outside' ? 'other-folder' : 'tag-availability', id, '2026-08-01T00:00:00.000Z', '2026-08-01T00:00:00.000Z', id,
+            JSON.stringify(tags), '[]', id, id, id).run();
+      }
+      const and = await (await request('/api/tags?area=active&folder=tag-availability&tag=alpha&q=%23common')).json() as any;
+      expect(and.items).toEqual([
+        { name: 'alpha', count: 2, available: true },
+        { name: 'common', count: 3, available: true },
+      ]);
+      const selectedOnly = await (await request('/api/tags?area=active&folder=tag-availability&tag=alpha')).json() as any;
+      expect(selectedOnly.items.map((tag: any) => tag.name)).toEqual(['alpha', 'beta', 'common', 'ghost']);
+      expect(selectedOnly.items.find((tag: any) => tag.name === 'ghost').available).toBe(false);
+      const andNoMatch = await (await request('/api/tags?area=active&folder=tag-availability&tag=alpha&tag=beta')).json() as any;
+      expect(andNoMatch.items.find((tag: any) => tag.name === 'common').available).toBe(false);
+      const or = await (await request('/api/tags?area=active&folder=tag-availability&tag=alpha&tag=beta&tagMode=OR')).json() as any;
+      expect(or.items.every((tag: any) => tag.available === true)).toBe(true);
+
+      const page = await (await request('/api/tags?area=active&folder=tag-availability')).json() as any;
+      const cursor = encodeURIComponent(page.nextCursor);
+      expect((await request(`/api/tags?area=active&folder=tag-availability&tag=alpha&cursor=${cursor}`)).status).toBe(400);
+      expect((await request(`/api/tags?area=active&folder=tag-availability&tag=alpha&tagMode=OR&cursor=${cursor}`)).status).toBe(400);
+    } finally {
+      for (const [id] of fixtures) await env.DB.prepare('DELETE FROM articles WHERE id = ?').bind(id).run();
     }
   });
   it('does not interpret query text as SQL or FTS syntax', async () => {
