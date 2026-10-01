@@ -16,6 +16,8 @@ interface State {
   selectedTags: Set<string>;
   tagMode: 'AND' | 'OR';
   query: string;
+  dateFrom: string;
+  dateTo: string;
   channels: Metadata<Channel>;
   tags: Metadata<Tag>;
   articles: Article[];
@@ -37,6 +39,8 @@ const state: State = {
   selectedTags: new Set(),
   tagMode: 'AND',
   query: '',
+  dateFrom: '',
+  dateTo: '',
   channels: emptyMetadata(),
   tags: emptyMetadata(),
   articles: [],
@@ -180,6 +184,8 @@ async function loadFeed(firstPage = false): Promise<void> {
     tag: [...state.selectedTags].sort(),
     tagMode: state.tagMode,
     q: state.query || null,
+    dateFrom: state.dateFrom || null,
+    dateTo: state.dateTo || null,
     cursor: firstPage ? null : state.cursor,
   };
   try {
@@ -297,7 +303,8 @@ function render(): void {
     <span class="channel-hash">#</span><span class="channel-name">${escapeHtml(channel.folder)}</span><span class="channel-count">${channel.count}</span>
   </button>`).join('');
   const tagOptions = state.tags.items.map((tag) => `<button class="tag-option${state.selectedTags.has(tag.name) ? ' selected' : ''}" data-action="select-tag" data-tag="${escapeHtml(tag.name)}" aria-pressed="${state.selectedTags.has(tag.name)}"># ${escapeHtml(tag.name)} <span>${tag.count}</span></button>`).join('');
-  const filtered = state.folder || state.selectedTags.size > 0 || state.query;
+  const activeFilters = state.folder || state.selectedTags.size > 0 || state.query;
+  const filtered = activeFilters || state.dateFrom || state.dateTo;
   const articleContent = state.articles.map(articleMarkup).join('');
   const noMore = state.cursor === null && !state.loadingFeed && state.articles.length > 0;
   const hasNoResults = !state.loadingFeed && !state.feedError && !state.revisionMismatch && !state.articles.length;
@@ -329,10 +336,16 @@ function render(): void {
         <div class="current-channel"><span class="channel-hash">#</span><strong>${escapeHtml(state.folder ?? 'すべての記事')}</strong><span class="area-badge">${state.area === 'active' ? '進行中' : 'アーカイブ'}</span></div>
         <span class="topbar-spacer"></span><span class="vault-status"><i></i>プライベート</span>
       </header>
-      <section class="feed-toolbar" aria-label="記事検索">
+      <section class="feed-toolbar" aria-label="記事検索"><div class="feed-controls">
         <form class="search-form" id="search-form"><label class="sr-only" for="search-input">記事を検索</label><input id="search-input" name="q" type="search" value="${escapeHtml(state.query)}" placeholder="記事を検索…" autocomplete="off" /><button type="submit" aria-label="検索">⌕</button></form>
-      </section>
-      ${filtered ? `<div class="active-filters">${state.folder ? `<button data-action="clear-folder"># ${escapeHtml(state.folder)} <span>×</span></button>` : ''}${[...state.selectedTags].map((tag) => `<button data-action="clear-tag" data-tag="${escapeHtml(tag)}" aria-label="${escapeHtml(tag)} の絞り込みを解除"># ${escapeHtml(tag)} <span>×</span></button>`).join('')}${state.query ? `<button data-action="clear-query">検索: ${escapeHtml(state.query)} <span>×</span></button>` : ''}<button class="clear-all" data-action="clear-filters">条件をクリア</button></div>` : ''}
+        <div class="date-filter" role="group" aria-label="記事の期間（日本時間）">
+          <label class="sr-only" for="date-from">開始日（日本時間）</label><input id="date-from" type="date" value="${escapeHtml(state.dateFrom)}" aria-label="開始日（日本時間）" />
+          <span aria-hidden="true">〜</span>
+          <label class="sr-only" for="date-to">終了日（日本時間）</label><input id="date-to" type="date" value="${escapeHtml(state.dateTo)}" aria-label="終了日（日本時間）" />
+          ${state.dateFrom || state.dateTo ? '<button type="button" data-action="clear-dates" aria-label="期間の絞り込みを解除" title="期間を解除">×</button>' : ''}
+        </div>
+      </div></section>
+      ${activeFilters ? `<div class="active-filters">${state.folder ? `<button data-action="clear-folder"># ${escapeHtml(state.folder)} <span>×</span></button>` : ''}${[...state.selectedTags].map((tag) => `<button data-action="clear-tag" data-tag="${escapeHtml(tag)}" aria-label="${escapeHtml(tag)} の絞り込みを解除"># ${escapeHtml(tag)} <span>×</span></button>`).join('')}${state.query ? `<button data-action="clear-query">検索: ${escapeHtml(state.query)} <span>×</span></button>` : ''}<button class="clear-all" data-action="clear-filters">条件をクリア</button></div>` : ''}
       <div class="feed-scroll" id="feed-scroll" aria-live="polite"><div class="feed-content">
         ${state.revisionMismatch ? `<div class="notice warning" role="alert"><strong>一覧が更新されました</strong><p>記事の追加や移動があったため、ページを続けて表示できません。</p><button class="primary-button" data-action="reset-feed">最新の一覧を読み込む</button></div>` : ''}
         ${state.feedError ? `<div class="notice error" role="alert"><strong>記事を読み込めませんでした</strong><p>${escapeHtml(state.feedError)}</p><button class="primary-button" data-action="retry-feed">再試行</button></div>` : ''}
@@ -400,7 +413,8 @@ app.addEventListener('click', (event) => {
   }
   else if (action === 'clear-folder') selectFolder(null);
   else if (action === 'clear-query') { state.query = ''; resetFeed(); }
-  else if (action === 'clear-filters') { state.query = ''; selectFolder(null); }
+  else if (action === 'clear-filters') { state.query = ''; state.dateFrom = ''; state.dateTo = ''; selectFolder(null); }
+  else if (action === 'clear-dates') { state.dateFrom = ''; state.dateTo = ''; resetFeed(); }
   else if (action === 'load-channels') void loadMetadata('channels');
   else if (action === 'load-tags') void loadMetadata('tags');
   else if (action === 'load-more') void loadFeed();
@@ -416,6 +430,14 @@ app.addEventListener('click', (event) => {
   else if (action === 'read-more') void loadArticleDetail(target.dataset.id ?? '');
   else if (action === 'expand') { state.expandedIds.add(target.dataset.id ?? ''); render(); }
   else if (action === 'collapse') { state.expandedIds.delete(target.dataset.id ?? ''); render(); }
+});
+
+app.addEventListener('change', (event) => {
+  const input = event.target as HTMLInputElement;
+  if (input.id !== 'date-from' && input.id !== 'date-to') return;
+  if (input.id === 'date-from') state.dateFrom = input.value;
+  else state.dateTo = input.value;
+  resetFeed();
 });
 
 app.addEventListener('submit', (event) => {

@@ -80,6 +80,49 @@ describe('read API', () => {
     expect(new Set([...first.items, ...second.items].map(item => item.id)).size).toBe(25);
     expect(response.headers.get('cache-control')).toContain('no-store');
   });
+  it('uses full Tokyo calendar days at UTC boundaries, including one-sided ranges', async () => {
+    const fixtures = [
+      ['before', '2026-08-31T14:59:59.999Z'],
+      ['start', '2026-08-31T15:00:00.000Z'],
+      ['end', '2026-09-01T14:59:59.999Z'],
+      ['after', '2026-09-01T15:00:00.000Z'],
+    ] as const;
+    try {
+      for (const [id, createdAt] of fixtures) {
+        await env.DB.prepare('INSERT INTO articles (id,path,area,folder,title,created_at,updated_at,body,tags_json,attachments_json,hash,search_text,search_tokens) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)')
+          .bind(`date-${id}`, `active/date-boundary/${id}.md`, 'active', 'date-boundary', id, createdAt, createdAt,
+            id, '[]', '[]', id, id, id).run();
+      }
+      const ids = async (filter: string) => (await (await request('/api/articles?folder=date-boundary' + filter)).json() as any)
+        .items.map((item: any) => item.id);
+      expect(await ids('&dateFrom=2026-09-01&dateTo=2026-09-01')).toEqual(['date-end', 'date-start']);
+      expect(await ids('&dateFrom=2026-09-01')).toEqual(['date-after', 'date-end', 'date-start']);
+      expect(await ids('&dateTo=2026-09-01')).toEqual(['date-end', 'date-start', 'date-before']);
+      expect(await ids('&dateFrom=&dateTo=')).toEqual(['date-after', 'date-end', 'date-start', 'date-before']);
+    } finally {
+      for (const [id] of fixtures) await env.DB.prepare('DELETE FROM articles WHERE id = ?').bind(`date-${id}`).run();
+    }
+  });
+  it('rejects malformed and reversed date ranges', async () => {
+    for (const filter of ['dateFrom=2026-9-01', 'dateTo=2026-02-29', 'dateFrom=1900-02-29',
+      'dateFrom=0000-01-01', 'dateTo=10000-01-01', 'dateTo=2026-13-01', 'dateFrom=2026-09-02&dateTo=2026-09-01']) {
+      expect((await request('/api/articles?' + filter)).status).toBe(400);
+    }
+    expect((await request('/api/articles?dateFrom=2000-02-29&dateTo=2000-02-29')).status).toBe(200);
+    expect((await request('/api/articles?dateFrom=0001-01-01&dateTo=9999-12-31')).status).toBe(200);
+  });
+  it('combines dates with server filters and binds paginated cursors to the range', async () => {
+    const base = '/api/articles?area=active&folder=test&tag=memo&q=' + encodeURIComponent('メモ') + '&dateFrom=2026-09-01&dateTo=2026-09-01';
+    const first = await (await request(base)).json() as any;
+    expect(first.items).toHaveLength(20);
+    expect(first.nextCursor).toBeTruthy();
+    const cursor = '&cursor=' + encodeURIComponent(first.nextCursor);
+    const second = await (await request(base + cursor)).json() as any;
+    expect(second.items).toHaveLength(4);
+    expect(new Set([...first.items, ...second.items].map((item: any) => item.id)).size).toBe(24);
+    expect((await request(base.replace('dateTo=2026-09-01', 'dateTo=2026-09-02') + cursor)).status).toBe(400);
+    expect((await request(base.replace('dateFrom=2026-09-01', 'dateFrom=') + cursor)).status).toBe(400);
+  });
   it('searches Japanese substrings and tags on the server', async () => {
     const response = await request('/api/articles?area=active&q=' + encodeURIComponent('語の検索') + '&tag=' + encodeURIComponent('日本語'));
     expect(response.status).toBe(200);

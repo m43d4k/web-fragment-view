@@ -123,3 +123,39 @@ it('reloads folder tags, clears prior tag selections, and ignores late responses
   await vi.waitFor(() => expect(document.querySelector('.tag-option[data-tag="all"]')).not.toBeNull());
   vi.unstubAllGlobals();
 });
+
+it('sends inclusive date selections with search and preserves them during pagination', async () => {
+  document.body.innerHTML = '<div id="app"></div>';
+  const calls: URL[] = [];
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+    const parsed = new URL(url, 'https://viewer.example');
+    if (parsed.pathname === '/api/articles') calls.push(parsed);
+    return Response.json({ items: [], revision: 1, nextCursor: parsed.pathname === '/api/articles' && !parsed.searchParams.has('cursor') ? 'page2' : null });
+  }));
+  vi.resetModules();
+  await import('../src/web/main');
+  await vi.waitFor(() => expect(calls).toHaveLength(1));
+  const setDate = (id: string, value: string) => {
+    const input = document.querySelector<HTMLInputElement>(id)!;
+    input.value = value;
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+  };
+  setDate('#date-from', '2026-09-01');
+  setDate('#date-to', '2026-09-30');
+  await vi.waitFor(() => expect(calls.at(-1)?.searchParams.get('dateTo')).toBe('2026-09-30'));
+  expect(calls.at(-1)?.searchParams.get('dateFrom')).toBe('2026-09-01');
+  document.querySelector<HTMLInputElement>('#search-input')!.value = '音楽';
+  document.querySelector<HTMLFormElement>('#search-form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+  await vi.waitFor(() => expect(calls.at(-1)?.searchParams.get('q')).toBe('音楽'));
+  await vi.waitFor(() => expect(document.querySelector('[data-action="load-more"]')).not.toBeNull());
+  document.querySelector<HTMLButtonElement>('[data-action="load-more"]')!.click();
+  await vi.waitFor(() => expect(calls.at(-1)?.searchParams.get('cursor')).toBe('page2'));
+  expect(calls.at(-1)?.searchParams.get('dateFrom')).toBe('2026-09-01');
+  expect(calls.at(-1)?.searchParams.get('dateTo')).toBe('2026-09-30');
+  document.querySelector<HTMLButtonElement>('[data-action="clear-dates"]')!.click();
+  await vi.waitFor(() => expect(calls.at(-1)?.searchParams.has('dateFrom')).toBe(false));
+  expect(calls.at(-1)?.searchParams.has('dateTo')).toBe(false);
+  expect(calls.at(-1)?.searchParams.has('cursor')).toBe(false);
+  expect(calls.at(-1)?.searchParams.get('q')).toBe('音楽');
+  vi.unstubAllGlobals();
+});

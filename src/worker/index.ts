@@ -31,6 +31,28 @@ function areaFrom(url: URL): string {
   return area;
 }
 
+function calendarDate(value: string | null): string | null {
+  if (value === null || value === '') return null;
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return invalid('日付が不正です。');
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const leap = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+  const days = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  if (year < 1 || month < 1 || month > 12 || day < 1 || day > days[month - 1]) return invalid('日付が不正です。');
+  return value;
+}
+
+function jstMidnight(date: string, nextDay = false): string {
+  const [year, month, day] = date.split('-').map(Number);
+  // setUTCFullYear handles years 0001-0099 without Date.UTC's 1900 offset.
+  const instant = new Date(0);
+  instant.setUTCFullYear(year, month - 1, day + Number(nextDay));
+  instant.setUTCHours(0, 0, 0, 0);
+  return new Date(instant.getTime() - 9 * 60 * 60 * 1000).toISOString();
+}
+
 function articleFrom(row: Row): Article {
   return {
     id: row.id, path: row.path, area: row.area, folder: row.folder, title: row.title,
@@ -57,18 +79,23 @@ async function listArticles(url: URL, env: Env): Promise<Response> {
   const rawTags = url.searchParams.getAll('tag');
   const tagMode = url.searchParams.get('tagMode') ?? 'AND';
   const q = url.searchParams.get('q') ?? '';
+  const dateFrom = calendarDate(url.searchParams.get('dateFrom'));
+  const dateTo = calendarDate(url.searchParams.get('dateTo'));
+  if (dateFrom && dateTo && dateFrom > dateTo) return invalid('日付の範囲が不正です。');
   if ((folder?.length ?? 0) > 512 || rawTags.length > 64 || rawTags.some(tag => tag.length < 1 || tag.length > 100))
     return invalid('絞り込み条件が不正です。');
   if (tagMode !== 'AND' && tagMode !== 'OR') return invalid('タグの絞り込み方法が不正です。');
   const tags = [...new Set(rawTags)].sort();
   let search: ReturnType<typeof searchQuery>;
   try { search = searchQuery(q); } catch (error) { return invalid((error as Error).message); }
-  const scope = JSON.stringify(['articles', area, folder, tags, tagMode, q]);
+  const scope = JSON.stringify(['articles', area, folder, tags, tagMode, q, dateFrom, dateTo]);
   const cursor = decodeCursor(url.searchParams.get('cursor'), scope);
   if (cursor && cursor.after.length !== 2) return invalid('カーソルが不正です。');
   const where = ['a.area = ?'];
   const params: unknown[] = [area];
   if (folder !== null) { where.push('a.folder = ?'); params.push(folder); }
+  if (dateFrom) { where.push('a.created_at >= ?'); params.push(jstMidnight(dateFrom)); }
+  if (dateTo) { where.push('a.created_at < ?'); params.push(jstMidnight(dateTo, true)); }
   if (tags.length) {
     const placeholders = tags.map(() => '?').join(',');
     if (tagMode === 'AND') {
