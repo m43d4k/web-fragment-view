@@ -370,7 +370,7 @@ function render(): void {
         ${state.channels.cursor ? `<button class="subtle-button" data-action="load-channels" ${state.channels.loading ? 'disabled' : ''}>${state.channels.loading ? '読み込み中…' : 'フォルダをもっと見る'}</button>` : ''}
       </div>
       <div class="sidebar-section tags-section"><div class="section-heading"><span>タグ</span><span class="section-count">${state.tags.items.length}${state.tags.cursor ? '+' : ''}</span></div>
-        <div class="tag-controls"><button class="tag-mode-button" data-action="toggle-tag-mode" aria-label="タグ条件: ${state.tagMode === 'AND' ? 'すべて含む' : 'いずれかを含む'}。クリックで切り替え">${state.tagMode}</button><button class="tag-mode-button" data-action="clear-tags" aria-label="タグの選択をすべて解除" ${state.selectedTags.size === 0 ? 'disabled' : ''}>選択解除</button></div>
+        <div class="tag-controls"><button class="tag-mode-button" data-action="toggle-tag-mode" aria-label="タグ条件: ${state.tagMode === 'AND' ? 'すべて含む' : 'いずれかを含む'}。クリックで切り替え">${state.tagMode}</button><button class="tag-mode-button" data-action="clear-tags" aria-label="タグの選択をすべて解除" ${state.selectedTags.size === 0 ? 'disabled' : ''}>Clear</button></div>
         ${tagOptions || (state.tags.loading ? '<p class="side-note">読み込み中…</p>' : '<p class="side-note">タグはありません</p>')}
         ${state.tags.error ? `<p class="side-error">${escapeHtml(state.tags.error)}</p><button class="subtle-button" data-action="load-tags">再試行</button>` : ''}
         ${state.tags.cursor ? `<button class="subtle-button" data-action="load-tags" ${state.tags.loading ? 'disabled' : ''}>${state.tags.loading ? '読み込み中…' : 'タグをもっと見る'}</button>` : ''}
