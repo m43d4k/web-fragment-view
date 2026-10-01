@@ -1,6 +1,7 @@
 import { Marked, marked } from 'marked';
 import DOMPurify from 'dompurify';
 import type { Article } from '../shared/types';
+import { tagLines } from '../shared/tags';
 
 function escapeHtml(value: string): string {
   return value.replace(/[&<>"']/g, (char) => ({
@@ -49,10 +50,20 @@ function linkCards(raw: string): string | null {
   return result.join('');
 }
 
-export function safeMarkdown(source: string, article?: Pick<Article, 'path' | 'attachments'>, renderedAttachments = new Set<string>()): string {
+export function safeMarkdown(source: string, article?: Pick<Article, 'path' | 'attachments'> & Partial<Pick<Article, 'tags' | 'truncated'>>, renderedAttachments = new Set<string>()): string {
+  const lines = tagLines(source).filter(line => !article?.truncated || line.end < source.length);
+  const prefix = `FRAGMENTVIEWTAG${crypto.randomUUID().replaceAll('-', '')}X`;
+  const originals = new Map<string, string>();
+  let prepared = source;
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i];
+    const marker = `${prefix}${i}Z`;
+    originals.set(marker, source.slice(line.start, line.end));
+    prepared = prepared.slice(0, line.start) + marker + prepared.slice(line.end);
+  }
   const parser = new Marked({ breaks: true });
   parser.use({ renderer: { paragraph: (token) => linkCards(token.raw) ?? false } });
-  const html = parser.parse(source) as string;
+  const html = parser.parse(prepared) as string;
   const safe = DOMPurify.sanitize(html, { USE_PROFILES: { html: true }, ALLOW_DATA_ATTR: false, FORBID_ATTR: ['style'] });
   const template = document.createElement('template');
   template.innerHTML = safe;
@@ -120,22 +131,29 @@ export function safeMarkdown(source: string, article?: Pick<Article, 'path' | 'a
   const walker = document.createTreeWalker(template.content, NodeFilter.SHOW_TEXT);
   while (walker.nextNode()) textNodes.push(walker.currentNode as Text);
   for (const node of textNodes) {
-    if (node.parentElement?.closest('a, code, pre, .url-block')) continue;
     const text = node.textContent ?? '';
-    const matches = [...text.matchAll(/#([\p{L}\p{N}_]+)/gu)];
+    const matches = [...text.matchAll(new RegExp(`${prefix}\\d+Z`, 'g'))];
     if (!matches.length) continue;
     const fragment = document.createDocumentFragment();
     let previous = 0;
     for (const match of matches) {
+      const original = originals.get(match[0]);
+      if (original === undefined) continue;
       const index = match.index ?? 0;
       fragment.append(document.createTextNode(text.slice(previous, index)));
-      const button = document.createElement('button');
-      button.type = 'button';
-      button.className = 'inline-tag';
-      button.dataset.action = 'select-tag';
-      button.dataset.tag = match[1];
-      button.textContent = match[0];
-      fragment.append(button);
+      let tagEnd = 0;
+      for (const tag of original.matchAll(/#([\p{L}\p{N}_]+)/gu)) {
+        fragment.append(document.createTextNode(original.slice(tagEnd, tag.index)));
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'inline-tag';
+        button.dataset.action = 'select-tag';
+        button.dataset.tag = tag[1];
+        button.textContent = tag[0];
+        fragment.append(button);
+        tagEnd = tag.index! + tag[0].length;
+      }
+      fragment.append(document.createTextNode(original.slice(tagEnd)));
       previous = index + match[0].length;
     }
     fragment.append(document.createTextNode(text.slice(previous)));

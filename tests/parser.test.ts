@@ -23,13 +23,13 @@ function commit(root: string) {
 afterEach(async () => { await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true }))); });
 
 describe('vault parser', () => {
-  it('uses the PC app timestamp, title, tag and attachment syntax', async () => {
+  it('uses the vault timestamp, title, standalone tag lines and attachment syntax', async () => {
     const root = await vault();
     const image = await sharp({ create: { width: 640, height: 400, channels: 3, background: 'blue' } }).webp().toBuffer();
     await writeFile(join(root, 'assets', 'photo.webp'), image);
     await writeFile(join(root, 'assets', 'attachment_' + 'a'.repeat(32) + '.txt'), 'sample');
     await writeFile(join(root, 'active/inbox/20260929_120102_123456.md'),
-      'https://example.test/a\ntitle: Example title\n\n本文 #日本語 #favorite #日本語\n![](../../assets/photo.webp)  \n[notes.txt](../../assets/attachment_' + 'a'.repeat(32) + '.txt)  \n');
+      'https://example.test/a\ntitle: Example title\n\n本文 #ignored\n#日本語 #favorite #日本語\n![](../../assets/photo.webp)  \n[notes.txt](../../assets/attachment_' + 'a'.repeat(32) + '.txt)  \n');
     await writeFile(join(root, 'archive/inbox/20260928_230000.md'), '# Heading\nArchive #保管');
     commit(root);
 
@@ -47,8 +47,17 @@ describe('vault parser', () => {
     expect(active.attachments[0].thumbnailKey).toMatch(/^thumbs\/[a-f0-9]{64}\.webp$/);
     expect(active.attachments[1].thumbnailKey).toBeNull();
     expect(first.objects).toHaveLength(3);
-    expect(first.articles.find(item => item.area === 'archive')).toMatchObject({ title: 'Heading',
+    expect(first.articles.find(item => item.area === 'archive')).toMatchObject({ title: 'Heading', tags: [],
       createdAt: '2026-09-28T14:00:00.000Z' });
+  });
+
+  it('preserves leading indentation so first-line code is not indexed as tags', async () => {
+    const root = await vault();
+    await writeFile(join(root, 'active/inbox/20260929_120000.md'), '    #code\n\n#visible\n');
+    commit(root);
+    const result = await parseVault(root);
+    expect(result.articles[0].body).toBe('    #code\n\n#visible');
+    expect(result.articles[0].tags).toEqual(['visible']);
   });
 
   it('changes the article hash when a referenced image changes, and ignores orphan assets', async () => {

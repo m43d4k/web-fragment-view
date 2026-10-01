@@ -4,7 +4,7 @@ PC 版 FragmentBox の `viewer.py` / `fragmentbox.py` の処理と、Git 作業�
 
 ## 配置とファイル名
 
-同期対象は `fragmentbox/active/<folder>/*.md` と `fragmentbox/archive/<folder>/*.md`、および本文から参照される `fragmentbox/assets/` 内の添付です。アプリは active と archive、同名フォルダを別々に扱います。Markdown は UTF-8 で、YAML front matter はありません。記事本文を読み込み、前後の空白を除いて保存します。
+同期対象は `fragmentbox/active/<folder>/*.md` と `fragmentbox/archive/<folder>/*.md`、および本文から参照される `fragmentbox/assets/` 内の添付です。アプリは active と archive、同名フォルダを別々に扱います。Markdown は UTF-8 で、確認済みの vault には YAML front matter はありません。記事本文を読み込み、末尾の空白を除いて保存します。先頭の空白は Markdown のインデントを保つため残します。
 
 記事のファイル名は `YYYYMMDD_HHMMSS.md` または `YYYYMMDD_HHMMSS_<1〜6桁>.md` です。時刻は FragmentBox が作成したローカル時刻（Asia/Tokyo、UTC+09:00）として扱い、保存時に UTC へ変換します。存在しない日付や時刻、規則外のファイル名は同期エラーにします。ファイルの更新日時は記事日時に使いません。記事の更新日時は、そのパスを最後に変更した Git commit の時刻から求めます。
 
@@ -16,7 +16,9 @@ PC 版 FragmentBox の `viewer.py` / `fragmentbox.py` の処理と、Git 作業�
 
 本文中の URL カードは、本文が URL で始まり、次の行が `title:` で始まるとき、その行から表示用タイトルを取ります。該当しない場合は、最初の空でない非画像行を使い、先頭の Markdown 見出し記号を除きます。`title:` などのカード情報は本文内の通常行で、front matter ではありません。
 
-タグは PC 版と同じ `#(\w+)` の規則で本文から読み取ります。Unicode の文字・数字と `_` がタグ名に含まれます。本文のどこに書かれていても認識し、同じタグの重複は一覧で一つにまとめます。
+この閲覧アプリでは、`#音楽 #制作` のように行全体がタグだけで構成される場合に限り、タグとして読み取ります。タグ名に使える文字は Unicode の文字・数字と `_` です。行の前後の空白は許容し、同じタグの重複は一覧で一つにまとめます。本文中の語句に続く `#`、URL、見出し、コードブロック・インラインコード、リスト、引用、HTML、front matter、`title:`・`sitename:`・`description:` などのカード情報はタグにしません。PC 版 FragmentBox は本文中の `#(\w+)` もタグとして扱うため、この判定とは異なります。
+
+既に D1 に同期された記事のタグも、更新後の同期を再実行すると新しい判定へ直ります。同じ vault commit でも記事ハッシュにタグが含まれるため更新対象になります。デプロイ後、既存の手順で dry-run を確認してから apply してください。vault の編集や D1 migration は不要です。
 
 ## 画像・添付
 

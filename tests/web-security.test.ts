@@ -66,18 +66,33 @@ describe('safeMarkdown', () => {
   });
 
   it('keeps tags at their source positions and leaves code and links untouched', () => {
-    const html = safeMarkdown('前 #日本語_1 後 [#link](https://example.com/#anchor) `#inline`\n#next\n\n```text\n#fenced\n```');
+    const html = safeMarkdown('前 #本文 後 [#link](https://example.com/#anchor) `#inline`\n#日本語_1 #next\n\n```text\n#fenced\n```');
     const template = document.createElement('template');
     template.innerHTML = html;
     const tag = template.content.querySelector<HTMLButtonElement>('[data-action="select-tag"]');
     expect(tag?.textContent).toBe('#日本語_1');
     expect(tag?.dataset.tag).toBe('日本語_1');
-    expect(tag?.parentElement?.textContent).toContain('前 #日本語_1 後');
+    expect(tag?.parentElement?.textContent).toContain('前 #本文 後');
     expect(template.content.querySelectorAll('[data-action]')).toHaveLength(2);
-    expect(tag?.parentElement?.querySelector('br + button')?.textContent).toBe('#next');
+    expect(tag?.parentElement?.querySelector('br + button')?.textContent).toBe('#日本語_1');
     expect(template.content.querySelector('a')?.textContent).toBe('#link');
     expect(template.content.querySelector('code')?.textContent).toBe('#inline');
     expect(template.content.querySelector('pre')?.textContent).toContain('#fenced');
+  });
+
+  it('ignores body hashes and non-tag metadata even when the same tag exists elsewhere', () => {
+    const source = '本文 #音楽\nhttps://example.com/#音楽\ntitle: #音楽\nsitename: #制作\ndescription: #説明\n\n# 見出し\n\n#音楽 #制作';
+    const template = document.createElement('template');
+    template.innerHTML = safeMarkdown(source);
+    expect([...template.content.querySelectorAll('[data-action="select-tag"]')].map(node => node.textContent)).toEqual(['#音楽', '#制作']);
+    expect(template.content.textContent).toContain('本文 #音楽');
+  });
+
+  it('does not promote an incomplete last line in a truncated article to tags', () => {
+    const template = document.createElement('template');
+    template.innerHTML = safeMarkdown('#音楽\n\n#制', { path: 'active/test/a.md', attachments: [], tags: ['音楽', '制作'], truncated: true });
+    expect([...template.content.querySelectorAll('[data-action="select-tag"]')].map(node => node.textContent)).toEqual(['#音楽']);
+    expect(template.content.textContent).toContain('#制');
   });
 
   it('renders a contiguous URL metadata group as a safe link card', () => {

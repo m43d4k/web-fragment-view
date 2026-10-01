@@ -7,7 +7,7 @@ it('keeps reading position, loaded thumbnails, and the search draft when the nex
   const article = (id: string): Article => ({
     id, path: `active/notes/${id}.md`, area: 'active', folder: 'notes', title: id,
     createdAt: '2026-09-01T00:00:00.000Z', updatedAt: '2026-09-01T00:00:00.000Z',
-    body: '短い #tag メモ', tags: ['tag'], truncated: false,
+    body: '短いメモ\n#tag', tags: ['tag'], truncated: false,
     attachments: [{ id: 'image', name: 'test.png', sourcePath: 'assets/test.png', mime: 'image/png', size: 4, originalKey: 'originals/image', thumbnailKey: 'thumbs/image.webp' }],
   });
   let articlesRequest = 0;

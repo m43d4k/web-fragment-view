@@ -4,6 +4,7 @@ import { lstat, readdir, readFile, realpath } from 'node:fs/promises';
 import { basename, join, posix, resolve, sep } from 'node:path';
 import sharp from 'sharp';
 import { normalizeSearch, searchTokens } from '../../src/shared/search';
+import { extractTags } from '../../src/shared/tags';
 import type { Attachment, Area, SyncArticle } from '../../src/shared/types';
 import type { SyncSnapshot } from './engine';
 
@@ -111,9 +112,9 @@ export async function parseVault(root: string): Promise<SyncSnapshot> {
     const created = createdAt(basename(path));
     if (entry.folder.length > 512) throw new Error('article folder exceeds API length limit');
     if ((await lstat(path)).size > MAX_BODY_BYTES) throw new Error('article exceeds 256 KiB body limit');
-    const body = new TextDecoder('utf-8', { fatal: true }).decode(await readFile(path)).trim();
+    const body = new TextDecoder('utf-8', { fatal: true }).decode(await readFile(path)).trimEnd();
     const title = titleFrom(body);
-    const tags = [...new Set([...body.matchAll(/#([\p{L}\p{N}_]+)/gu)].map(match => match[1]))];
+    const tags = extractTags(body);
     if (tags.length > 64 || tags.some(tag => tag.length > 100)) throw new Error('article exceeds tag count or length limit');
     const attachments: Attachment[] = [];
     const seen = new Set<string>();
