@@ -1,10 +1,14 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Miniflare, convertV4MiniflareOptions } from 'miniflare';
 import { readFile } from 'node:fs/promises';
 import { generateKeyPair, SignJWT } from 'jose';
 import { handleRequest, type Env } from '../src/worker/index';
 import { verifyAccess } from '../src/worker/auth';
 import { normalizeSearch, searchTokens } from '../src/shared/search';
+
+vi.mock('../config/folder-order.json', () => ({
+  default: { active: ['z-priority', 'missing', 'a-priority', ...Array.from({ length: 49 }, (_, i) => `rank-${String(48 - i).padStart(2, '0')}`)], archive: ['a-priority', 'z-priority'] },
+}));
 
 let mf: Miniflare;
 let env: Env;
@@ -343,5 +347,44 @@ it('requires favorites in addition to OR tags, search and dates, and scopes pagi
     expect(empty.items).toEqual([]);
   } finally {
     for (const { id } of fixtures) await env.DB.prepare('DELETE FROM articles WHERE id=?').bind(id).run();
+  }
+});
+
+it('paginates channels in configured order, appends unknown folders, and invalidates old order cursors', async () => {
+  const folders = ['z-priority', 'a-priority', ...Array.from({ length: 49 }, (_, i) => `rank-${String(48 - i).padStart(2, '0')}`), ...Array.from({ length: 52 }, (_, i) => `order-${String(i).padStart(2, '0')}`)];
+  const ids: string[] = [];
+  try {
+    for (const area of ['active', 'archive']) {
+      for (const folder of area === 'active' ? folders : folders.slice(0, 2)) {
+        const id = `channel-${area}-${folder}`;
+        ids.push(id);
+        await env.DB.prepare('INSERT INTO articles (id,path,area,folder,title,created_at,updated_at,body,tags_json,attachments_json,hash,search_text,search_tokens) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)')
+          .bind(id, `${area}/${folder}/item.md`, area, folder, 'item', '2026-09-01T00:00:00.000Z',
+            '2026-09-01T00:00:00.000Z', '', '[]', '[]', id, '', '').run();
+      }
+    }
+    const first = await (await request('/api/channels')).json() as any;
+    expect(first.items).toHaveLength(50);
+    expect(first.items.slice(0, 2)).toEqual([
+      { folder: 'z-priority', area: 'active', count: 1 },
+      { folder: 'a-priority', area: 'active', count: 1 },
+    ]);
+    const second = await (await request('/api/channels?cursor=' + encodeURIComponent(first.nextCursor))).json() as any;
+    expect(second.items).toHaveLength(50);
+    const third = await (await request('/api/channels?cursor=' + encodeURIComponent(second.nextCursor))).json() as any;
+    expect([...first.items, ...second.items, ...third.items].map(item => item.folder)).toEqual([...folders, 'test']);
+    expect(third.nextCursor).toBeNull();
+    const archive = await (await request('/api/channels?area=archive')).json() as any;
+    expect(archive.items.map((item: any) => item.folder)).toEqual(['a-priority', 'z-priority']);
+    expect((await request('/api/channels?area=archive&cursor=' + encodeURIComponent(first.nextCursor))).status).toBe(400);
+    const old = JSON.parse(atob(first.nextCursor));
+    old.order = 'previous-order';
+    const outdated = await request('/api/channels?cursor=' + encodeURIComponent(btoa(JSON.stringify(old))));
+    expect(outdated.status).toBe(409);
+    expect((await outdated.json() as any).code).toBe('REVISION_CHANGED');
+    delete old.order;
+    expect((await request('/api/channels?cursor=' + encodeURIComponent(btoa(JSON.stringify(old))))).status).toBe(409);
+  } finally {
+    for (const id of ids) await env.DB.prepare('DELETE FROM articles WHERE id=?').bind(id).run();
   }
 });

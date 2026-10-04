@@ -1,10 +1,11 @@
-import type { Article, Attachment } from '../shared/types';
+import type { Area, Article, Attachment } from '../shared/types';
+import { folderOrder, folderOrderVersion } from './folder-order';
 import { searchQuery } from '../shared/search';
 import { HttpError, verifyAccess, type AuthEnv } from './auth';
 
 export interface Env extends AuthEnv { DB: D1Database; BUCKET: R2Bucket; ASSETS: Fetcher }
 type Row = Record<string, any>;
-type Cursor = { revision: number; scope: string; after: string[] };
+type Cursor = { revision: number; scope: string; after: string[]; order?: string };
 const json = (data: unknown, status = 200) => Response.json(data, { status });
 const invalid = (message: string): never => { throw new HttpError(400, 'INVALID_REQUEST', message); };
 
@@ -25,7 +26,7 @@ function decodeCursor(value: string | null, scope: string): Cursor | null {
   } catch { return invalid('カーソルが不正です。'); }
 }
 
-function areaFrom(url: URL): string {
+function areaFrom(url: URL): Area {
   const area = url.searchParams.get('area') ?? 'active';
   if (area !== 'active' && area !== 'archive') return invalid('表示範囲が不正です。');
   return area;
@@ -142,11 +143,22 @@ async function metadata(url: URL, env: Env, kind: 'channels' | 'tags'): Promise<
   const cursor = decodeCursor(url.searchParams.get('cursor'), scope);
   if (cursor && cursor.after.length !== 1) return invalid('カーソルが不正です。');
   const after = cursor?.after[0] ?? '';
+  const order = kind === 'channels' ? folderOrder[area] : [];
+  const orderVersion = kind === 'channels' ? await folderOrderVersion(order) : undefined;
+  if (kind === 'channels' && cursor && cursor.order !== orderVersion) {
+    throw new HttpError(409, 'REVISION_CHANGED', 'フォルダの並び順が更新されました。一覧を再読み込みしてください。');
+  }
+  const afterRank = cursor ? (order.includes(after) ? order.indexOf(after) : order.length) : -1;
   const candidateScopeWhere = `avail.area=?${folder === null ? '' : ' AND avail.folder=?'}`;
   const selectedMissing = selected.length ? `NOT EXISTS (SELECT 1 FROM (SELECT value AS tag FROM json_each(?)) chosen
     WHERE NOT EXISTS (SELECT 1 FROM article_tags chosen_tag WHERE chosen_tag.article_id=avail.id AND chosen_tag.tag=chosen.tag))` : '1=1';
   const sql = kind === 'channels'
-    ? 'SELECT folder,area,count(*) AS count FROM articles WHERE area=? AND folder>? GROUP BY folder,area ORDER BY folder LIMIT 51'
+    ? `WITH configured AS (SELECT value AS folder, CAST(key AS INTEGER) AS rank FROM json_each(?)),
+      channels AS (SELECT a.folder,a.area,count(*) AS count,COALESCE(c.rank,?) AS rank
+        FROM articles a LEFT JOIN configured c ON c.folder=a.folder
+        WHERE a.area=? GROUP BY a.folder,a.area)
+      SELECT folder,area,count FROM channels WHERE (rank,folder) > (?,?)
+      ORDER BY rank,folder LIMIT 51`
     : `SELECT t.tag AS name,count(*) AS count,
       CASE WHEN ${selected.length ? `t.tag IN (${selected.map(() => '?').join(',')})` : '0'} OR ?='OR' THEN 1
       WHEN EXISTS (SELECT 1 FROM article_tags candidate JOIN articles avail ON avail.id=candidate.article_id
@@ -154,7 +166,7 @@ async function metadata(url: URL, env: Env, kind: 'channels' | 'tags'): Promise<
       FROM article_tags t JOIN articles a ON a.id=t.article_id
       WHERE a.area=?${folder === null ? '' : ' AND a.folder=?'}${q ? ` AND (instr(lower(t.tag),lower(?))>0${selected.length ? ` OR t.tag IN (${selected.map(() => '?').join(',')})` : ''})` : ''}
       AND t.tag>? GROUP BY t.tag ORDER BY t.tag LIMIT 51`;
-  const params = kind === 'channels' ? [area, after] : [
+  const params = kind === 'channels' ? [JSON.stringify(order), order.length, area, afterRank, after] : [
     ...(selected.length ? selected : []), tagMode,
     area, ...(folder === null ? [] : [folder]),
     ...(selected.length ? [JSON.stringify(selected)] : []),
@@ -164,7 +176,7 @@ async function metadata(url: URL, env: Env, kind: 'channels' | 'tags'): Promise<
   const items = rows.slice(0, 50).map((row: Row) => kind === 'tags'
     ? { name: row.name, count: row.count, available: !!row.available } : row);
   const last = items.at(-1);
-  return json({ items, revision, nextCursor: rows.length > 50 && last ? encodeCursor({ revision, scope, after: [last[kind === 'channels' ? 'folder' : 'name']] }) : null });
+  return json({ items, revision, nextCursor: rows.length > 50 && last ? encodeCursor({ revision, scope, after: [last[kind === 'channels' ? 'folder' : 'name']], ...(kind === 'channels' ? { order: orderVersion } : {}) }) : null });
 }
 
 async function asset(request: Request, url: URL, env: Env, id: string): Promise<Response> {
