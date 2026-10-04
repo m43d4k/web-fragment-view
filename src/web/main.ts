@@ -162,6 +162,11 @@ function selectFolder(folder: string | null): void {
 
 async function loadMetadata<T>(kind: 'channels' | 'tags', reset = false): Promise<void> {
   if (kind === 'tags' && reset) clearTimeout(tagSearchTimer);
+  if (kind === 'tags' && state.folder === null) {
+    state.tags = emptyMetadata();
+    render();
+    return;
+  }
   const metadata = state[kind] as Metadata<T>;
   if (!reset && (metadata.loading || (metadata.cursor === null && metadata.items.length > 0))) return;
   if (reset) {
@@ -192,6 +197,9 @@ async function loadMetadata<T>(kind: 'channels' | 'tags', reset = false): Promis
     if (!isCurrent()) return;
     metadata.items = [...metadata.items, ...page.items];
     metadata.cursor = page.nextCursor;
+    if (kind === 'channels' && state.folder === null && state.channels.items.length > 0) {
+      selectFolder(state.channels.items[0].folder);
+    }
   } catch (error) {
     if (!isCurrent()) return;
     if (error instanceof RevisionMismatchError) {
@@ -209,6 +217,7 @@ async function loadMetadata<T>(kind: 'channels' | 'tags', reset = false): Promis
 }
 
 async function loadFeed(firstPage = false, target: FeedState = state): Promise<void> {
+  if (state.folder === null) { render(); return; }
   if (target.loadingFeed || target.revisionMismatch || target.articles.length >= ARTICLE_WINDOW_LIMIT) return;
   if (!firstPage && target.cursor === null) return;
   const generation = target.feedGeneration;
@@ -333,6 +342,13 @@ function articleMarkup(article: Article, target: FeedState = state): string {
 const searchIcon = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4.5 4.5"/></svg>';
 
 function feedMarkup(target: FeedState, filtered: boolean): string {
+  if (state.folder === null) {
+    return `<div class="feed-scroll" id="${target === state ? 'feed-scroll' : 'search-scroll'}" aria-live="polite"><div class="feed-content">
+      ${state.channels.loading ? '<div class="loading-row" role="status"><span class="spinner"></span>フォルダを読み込み中…</div>'
+        : state.channels.error ? `<div class="notice error" role="alert"><strong>フォルダを読み込めませんでした</strong><p>${escapeHtml(state.channels.error)}</p><button class="primary-button" data-action="load-channels">再試行</button></div>`
+        : '<div class="empty-state"><h3>フォルダはありません</h3><p>記事が同期されると、ここに表示されます。</p></div>'}
+    </div></div>`;
+  }
   const articleContent = target.articles.map(article => articleMarkup(article, target)).join('');
   const noMore = target.cursor === null && !target.loadingFeed && target.articles.length > 0;
   const hasNoResults = !target.loadingFeed && !target.feedError && !target.revisionMismatch && !target.articles.length;
@@ -375,7 +391,7 @@ function render(): void {
     const unavailable = !selected && tag.available === false;
     return `<button class="tag-option${selected ? ' selected' : ''}" data-action="select-tag" data-tag="${escapeHtml(tag.name)}" aria-pressed="${selected}" ${unavailable ? 'disabled title="該当する記事がありません"' : ''}># ${escapeHtml(tag.name)} ${tag.count === undefined ? '' : `<span>${tag.count}</span>`}</button>`;
   }).join('');
-  const activeFilters = state.folder || state.selectedTags.size > 0 || state.favoritesOnly;
+  const activeFilters = state.selectedTags.size > 0 || state.favoritesOnly;
   const filtered = activeFilters;
   const template = document.createElement('template');
   template.innerHTML = `<div class="app-shell">
@@ -386,7 +402,6 @@ function render(): void {
         <button data-action="area" data-area="archive" aria-pressed="${state.area === 'archive'}">Archive</button>
       </div>
       <div class="sidebar-section"><div class="section-heading"><span>フォルダ</span><span class="section-count">${state.channels.items.length}${state.channels.cursor ? '+' : ''}</span></div>
-        <button class="channel-row${state.folder === null ? ' selected' : ''}" data-action="select-folder" data-folder=""><span class="channel-hash">⌂</span><span class="channel-name">すべての記事</span></button>
         ${channelRows || (state.channels.loading ? '<p class="side-note">読み込み中…</p>' : '<p class="side-note">フォルダはありません</p>')}
         ${state.channels.error ? `<p class="side-error">${escapeHtml(state.channels.error)}</p><button class="subtle-button" data-action="load-channels">再試行</button>` : ''}
         ${state.channels.cursor ? `<button class="subtle-button" data-action="load-channels" ${state.channels.loading ? 'disabled' : ''}>${state.channels.loading ? '読み込み中…' : 'フォルダをもっと見る'}</button>` : ''}
@@ -403,14 +418,14 @@ function render(): void {
     ${state.channelDrawerOpen ? '<button class="drawer-scrim" data-action="close-drawer" aria-label="メニューを閉じる"></button>' : ''}
     <main class="main-panel">
       <header class="topbar"><button class="icon-button menu-button" data-action="open-drawer" aria-label="チャンネル一覧を開く" aria-expanded="${state.channelDrawerOpen}" aria-controls="channel-panel">☰</button>
-        <div class="current-channel"><strong>${escapeHtml(state.folder ?? 'すべての記事')}</strong><span class="area-badge">${state.area === 'active' ? 'General' : 'Archive'}</span></div>
+        <div class="current-channel"><strong>${escapeHtml(state.folder ?? (state.channels.loading ? 'フォルダを読み込み中…' : 'フォルダ未選択'))}</strong><span class="area-badge">${state.area === 'active' ? 'General' : 'Archive'}</span></div>
         <span class="topbar-spacer"></span><button class="icon-button favorite-toggle" data-action="toggle-favorites" aria-label="お気に入りで絞り込む" aria-pressed="${state.favoritesOnly}" title="お気に入りで絞り込む"><span aria-hidden="true">♥</span></button><button class="icon-button search-toggle" data-action="open-search" aria-label="記事検索を開く" aria-expanded="${state.searchOpen}" aria-controls="search-panel">${searchIcon}</button>
       </header>
-      ${activeFilters ? `<div class="active-filters">${state.folder ? `<button data-action="clear-folder">${escapeHtml(state.folder)} <span>×</span></button>` : ''}${[...state.selectedTags].map((tag) => `<button data-action="clear-tag" data-tag="${escapeHtml(tag)}" aria-label="${escapeHtml(tag)} の絞り込みを解除"># ${escapeHtml(tag)} <span>×</span></button>`).join('')}<button class="clear-all" data-action="clear-filters">条件をクリア</button></div>` : ''}
+      ${activeFilters ? `<div class="active-filters">${[...state.selectedTags].map((tag) => `<button data-action="clear-tag" data-tag="${escapeHtml(tag)}" aria-label="${escapeHtml(tag)} の絞り込みを解除"># ${escapeHtml(tag)} <span>×</span></button>`).join('')}<button class="clear-all" data-action="clear-filters">条件をクリア</button></div>` : ''}
       ${feedMarkup(state, Boolean(filtered))}
     </main>
     ${state.searchOpen ? `<section class="search-panel" id="search-panel" aria-label="記事検索">
-      <header class="topbar search-heading"><button class="icon-button search-back" data-action="close-search" aria-label="検索を終了">&lt;</button><div class="current-channel"><strong>${escapeHtml(state.folder ?? 'すべての記事')}</strong></div><span class="topbar-spacer"></span><button class="icon-button search-close" data-action="close-search" aria-label="検索を終了">×</button></header>
+      <header class="topbar search-heading"><button class="icon-button search-back" data-action="close-search" aria-label="検索を終了">&lt;</button><div class="current-channel"><strong>${escapeHtml(state.folder ?? (state.channels.loading ? 'フォルダを読み込み中…' : 'フォルダ未選択'))}</strong></div><span class="topbar-spacer"></span><button class="icon-button search-close" data-action="close-search" aria-label="検索を終了">×</button></header>
       <div class="search-controls"><form class="search-form" id="search-form"><label class="sr-only" for="search-input">記事を検索</label><input id="search-input" name="q" type="search" value="${escapeHtml(state.query)}" placeholder="記事を検索…" autocomplete="off" /><button type="submit" aria-label="検索">${searchIcon}</button></form>
         <div class="date-filter" role="group" aria-label="記事の期間（日本時間）">
           <label class="sr-only" for="date-from">開始日（日本時間）</label><input id="date-from" type="date" value="${escapeHtml(state.dateFrom)}" aria-label="開始日（日本時間）" />
@@ -464,11 +479,10 @@ app.addEventListener('click', (event) => {
     state.tags = emptyMetadata();
     resetFeed();
     void loadMetadata('channels', true);
-    void loadMetadata('tags', true);
   } else if (action === 'select-folder') {
     const restoreFocus = state.channelDrawerOpen;
     state.channelDrawerOpen = false;
-    selectFolder(target.dataset.folder || null);
+    if (target.dataset.folder) selectFolder(target.dataset.folder);
     if (restoreFocus) focusMenuButton();
   } else if (action === 'toggle-favorites') {
     state.favoritesOnly = !state.favoritesOnly;
@@ -494,10 +508,9 @@ app.addEventListener('click', (event) => {
     resetFeed();
     void loadMetadata('tags', true);
   }
-  else if (action === 'clear-folder') selectFolder(null);
   else if (action === 'open-search') { state.searchOpen = true; render(); app?.querySelector<HTMLInputElement>('#search-input')?.focus(); }
   else if (action === 'close-search') closeSearch();
-  else if (action === 'clear-filters') { state.favoritesOnly = false; state.query = ''; state.dateFrom = ''; state.dateTo = ''; selectFolder(null); }
+  else if (action === 'clear-filters') { state.favoritesOnly = false; state.query = ''; state.dateFrom = ''; state.dateTo = ''; selectFolder(state.folder); }
   else if (action === 'clear-dates') { state.dateFrom = ''; state.dateTo = ''; resetOneFeed(searchFeed); }
   else if (action === 'load-channels') void loadMetadata('channels');
   else if (action === 'load-tags') void loadMetadata('tags');
@@ -563,5 +576,3 @@ app.addEventListener('scroll', (event) => {
 
 render();
 void loadMetadata('channels', true);
-void loadMetadata('tags', true);
-void loadFeed(true);

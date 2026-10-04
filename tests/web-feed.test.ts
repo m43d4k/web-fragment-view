@@ -2,6 +2,10 @@
 import { expect, it, vi } from 'vitest';
 import type { Article } from '../src/shared/types';
 
+const channelPage = () => Response.json({
+  items: [{ folder: 'notes', area: 'active', count: 1 }], revision: 1, nextCursor: null,
+});
+
 it('keeps reading position, loaded thumbnails, and the search draft when the next page arrives', async () => {
   document.body.innerHTML = '<div id="app"></div>';
   const article = (id: string): Article => ({
@@ -12,6 +16,7 @@ it('keeps reading position, loaded thumbnails, and the search draft when the nex
   });
   let articlesRequest = 0;
   vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+    if (url.startsWith('/api/channels')) return channelPage();
     const isArticles = url.startsWith('/api/articles');
     if (isArticles) articlesRequest++;
     return Response.json({ items: isArticles ? [article(String(articlesRequest))] : [], revision: 1, nextCursor: isArticles && articlesRequest === 1 ? 'page2' : null });
@@ -49,7 +54,7 @@ it('does not repeat a thumbnail from the article body in the attachment list', a
     body: 'https://example.com\ntitle: Example\n\n![preview](../../assets/test.png)', tags: [], truncated: false,
     attachments: [{ id: 'image', name: 'test.png', sourcePath: 'assets/test.png', mime: 'image/png', size: 4, originalKey: 'originals/image', thumbnailKey: 'thumbs/image.webp' }],
   };
-  vi.stubGlobal('fetch', vi.fn(async (url: string) => Response.json({
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => url.startsWith('/api/channels') ? channelPage() : Response.json({
     items: url.startsWith('/api/articles') ? [article] : [], revision: 1, nextCursor: null,
   })));
   vi.resetModules();
@@ -66,6 +71,7 @@ it('toggles multiple tags, switches AND/OR, and clears one selection without los
   document.body.innerHTML = '<div id="app"></div>';
   const calls: URL[] = [];
   vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+    if (url.startsWith('/api/channels')) return channelPage();
     const parsed = new URL(url, 'https://viewer.example');
     if (parsed.pathname === '/api/articles') calls.push(parsed);
     return Response.json({ items: parsed.pathname === '/api/tags' ? [{ name: 'A', count: 2 }, { name: 'B', count: 1 }] : [], revision: 1, nextCursor: null });
@@ -110,7 +116,7 @@ it('reloads folder tags, clears prior tag selections, and ignores late responses
   const page = (items: unknown[]) => Response.json({ items, revision: 1, nextCursor: null });
   vi.stubGlobal('fetch', vi.fn(async (url: string) => {
     const parsed = new URL(url, 'https://viewer.example');
-    if (parsed.pathname === '/api/channels') return page(['A', 'B'].map(folder => ({ folder, area: 'active', count: 1 })));
+    if (parsed.pathname === '/api/channels') return page(['notes', 'A', 'B'].map(folder => ({ folder, area: 'active', count: 1 })));
     if (parsed.pathname === '/api/tags') {
       if (parsed.searchParams.get('folder') === 'A') return new Promise<Response>(resolve => { finishA = resolve; });
       return page([{ name: parsed.searchParams.get('folder') === 'B' ? 'B-only' : 'all', count: 1 }]);
@@ -132,7 +138,16 @@ it('reloads folder tags, clears prior tag selections, and ignores late responses
   finishA(page([{ name: 'A-only', count: 1 }]));
   await new Promise(resolve => setTimeout(resolve, 0));
   expect(document.querySelector('.tag-option[data-tag="A-only"]')).toBeNull();
-  click('[data-action="clear-folder"]');
+  expect(document.querySelector('.main-panel .current-channel strong')?.textContent).toBe('B');
+  expect(document.querySelector('.active-filters')).toBeNull();
+  expect(articleRequests.at(-1)?.searchParams.get('folder')).toBe('B');
+  click('.tag-option[data-tag="B-only"]');
+  expect(document.querySelector('.active-filters [data-action="clear-tag"]')?.textContent).toContain('B-only');
+  expect(document.querySelector('[data-action="clear-folder"]')).toBeNull();
+  click('.active-filters [data-action="clear-tag"]');
+  expect(document.querySelector('.active-filters')).toBeNull();
+  expect(articleRequests.at(-1)?.searchParams.get('folder')).toBe('B');
+  click('[data-action="select-folder"][data-folder="notes"]');
   await vi.waitFor(() => expect(document.querySelector('.tag-option[data-tag="all"]')).not.toBeNull());
   vi.unstubAllGlobals();
 });
@@ -141,6 +156,7 @@ it('sends inclusive date selections with search and preserves them during pagina
   document.body.innerHTML = '<div id="app"></div>';
   const calls: URL[] = [];
   vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+    if (url.startsWith('/api/channels')) return channelPage();
     const parsed = new URL(url, 'https://viewer.example');
     if (parsed.pathname === '/api/articles') calls.push(parsed);
     return Response.json({ items: [], revision: 1, nextCursor: parsed.pathname === '/api/articles' && !parsed.searchParams.has('cursor') ? 'page2' : null });
@@ -195,6 +211,7 @@ it('opens a separate search panel and preserves the feed and its reading positio
     body: '検索対象', tags: [], truncated: false, attachments: [],
   };
   vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+    if (url.startsWith('/api/channels')) return channelPage();
     const parsed = new URL(url, 'https://viewer.example');
     if (parsed.pathname === '/api/articles') calls.push(parsed);
     return Response.json({ items: parsed.pathname === '/api/articles' ? [article] : [], revision: 1, nextCursor: null });
@@ -232,6 +249,7 @@ it('ignores a search response that arrives after closing and reopening search', 
   document.body.innerHTML = '<div id="app"></div>';
   let finishSearch!: (response: Response) => void;
   vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+    if (url.startsWith('/api/channels')) return channelPage();
     const parsed = new URL(url, 'https://viewer.example');
     if (parsed.pathname === '/api/articles' && parsed.searchParams.has('q')) {
       return new Promise<Response>(resolve => { finishSearch = resolve; });
@@ -262,6 +280,7 @@ it('searches tags on the server without changing selected tags or the article fe
   document.body.innerHTML = '<div id="app"></div>';
   const calls: URL[] = [];
   vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+    if (url.startsWith('/api/channels')) return channelPage();
     const parsed = new URL(url, 'https://viewer.example');
     calls.push(parsed);
     return Response.json({ items: parsed.pathname === '/api/tags' ? [{ name: parsed.searchParams.get('q') || '選択済み', count: 1 }] : [], revision: 1, nextCursor: null });
@@ -295,6 +314,7 @@ it('refreshes tag availability with selection and mode, keeping selected tags vi
   document.body.innerHTML = '<div id="app"></div>';
   const tagCalls: URL[] = [];
   vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+    if (url.startsWith('/api/channels')) return channelPage();
     const parsed = new URL(url, 'https://viewer.example');
     if (parsed.pathname === '/api/tags') tagCalls.push(parsed);
     const selected = parsed.searchParams.getAll('tag');
@@ -326,6 +346,7 @@ it('toggles favorites independently of OR tags and applies them to search and su
   document.body.innerHTML = '<div id="app"></div>';
   const calls: URL[] = [];
   vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+    if (url.startsWith('/api/channels')) return channelPage();
     const parsed = new URL(url, 'https://viewer.example');
     if (parsed.pathname === '/api/articles') calls.push(parsed);
     return Response.json({ items: parsed.pathname === '/api/tags' ? [{ name: 'memo', count: 1 }] : [], revision: 1,
@@ -363,5 +384,80 @@ it('toggles favorites independently of OR tags and applies them to search and su
   await click('.main-panel .clear-all');
   expect(document.querySelector(favorite)?.getAttribute('aria-pressed')).toBe('false');
   expect(calls.at(-1)?.searchParams.has('favorites')).toBe(false);
+  vi.unstubAllGlobals();
+});
+
+it('waits for channels, opens the first in server order, and keeps the folder when clearing filters', async () => {
+  document.body.innerHTML = '<div id="app"></div>';
+  let finishChannels!: (response: Response) => void;
+  const calls: URL[] = [];
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+    const parsed = new URL(url, 'https://viewer.example');
+    calls.push(parsed);
+    if (parsed.pathname === '/api/channels') return new Promise<Response>(resolve => { finishChannels = resolve; });
+    return Response.json({ items: parsed.pathname === '/api/tags' ? [{ name: 'tag', count: 1 }] : [], revision: 1, nextCursor: null });
+  }));
+  vi.resetModules();
+  await import('../src/web/main');
+  expect(calls.map(url => url.pathname)).toEqual(['/api/channels']);
+  expect(document.body.textContent).not.toContain('すべての記事');
+  finishChannels(Response.json({ items: ['Z', 'A'].map(folder => ({ folder, area: 'active', count: 1 })), revision: 1, nextCursor: null }));
+  await vi.waitFor(() => expect(document.querySelector('.tag-option')).not.toBeNull());
+  expect(document.querySelector('.channel-row.selected')?.getAttribute('data-folder')).toBe('Z');
+  expect(document.querySelector('.main-panel .current-channel strong')?.textContent).toBe('Z');
+  expect(calls.filter(url => url.pathname !== '/api/channels').every(url => url.searchParams.get('folder') === 'Z')).toBe(true);
+  document.querySelector<HTMLButtonElement>('.tag-option')!.click();
+  document.querySelector<HTMLButtonElement>('.clear-all')!.click();
+  await vi.waitFor(() => expect(document.querySelector('.loading-row')).toBeNull());
+  expect(document.querySelector('.channel-row.selected')?.getAttribute('data-folder')).toBe('Z');
+  expect(calls.filter(url => url.pathname === '/api/articles').at(-1)?.searchParams.getAll('tag')).toEqual([]);
+  expect(calls.filter(url => url.pathname !== '/api/channels').every(url => url.searchParams.has('folder'))).toBe(true);
+  vi.unstubAllGlobals();
+});
+
+it('retries a failed channel load and leaves an empty area without fetching all articles', async () => {
+  document.body.innerHTML = '<div id="app"></div>';
+  const calls: URL[] = [];
+  let fail = true;
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+    const parsed = new URL(url, 'https://viewer.example');
+    calls.push(parsed);
+    if (fail) return Response.json({ error: 'フォルダ取得失敗' }, { status: 503 });
+    return Response.json({ items: [], revision: 1, nextCursor: null });
+  }));
+  vi.resetModules();
+  await import('../src/web/main');
+  await vi.waitFor(() => expect(document.querySelector('.side-error')?.textContent).toContain('フォルダ取得失敗'));
+  expect(calls.map(url => url.pathname)).toEqual(['/api/channels']);
+  fail = false;
+  document.querySelector<HTMLButtonElement>('[data-action="load-channels"]')!.click();
+  await vi.waitFor(() => expect(document.querySelector('.side-error')).toBeNull());
+  await vi.waitFor(() => expect(document.querySelector('#feed-scroll')?.textContent).toContain('フォルダはありません'));
+  expect(calls.map(url => url.pathname)).toEqual(['/api/channels', '/api/channels']);
+  vi.unstubAllGlobals();
+});
+
+it('opens the first folder of the new area and ignores a late channel response from the previous area', async () => {
+  document.body.innerHTML = '<div id="app"></div>';
+  let finishActive!: (response: Response) => void;
+  const calls: URL[] = [];
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+    const parsed = new URL(url, 'https://viewer.example');
+    calls.push(parsed);
+    if (parsed.pathname === '/api/channels') {
+      if (parsed.searchParams.get('area') === 'active') return new Promise<Response>(resolve => { finishActive = resolve; });
+      return Response.json({ items: [{ folder: 'archive-first', area: 'archive', count: 1 }], revision: 1, nextCursor: null });
+    }
+    return Response.json({ items: [], revision: 1, nextCursor: null });
+  }));
+  vi.resetModules();
+  await import('../src/web/main');
+  document.querySelector<HTMLButtonElement>('[data-action="area"][data-area="archive"]')!.click();
+  await vi.waitFor(() => expect(document.querySelector('.channel-row.selected')?.getAttribute('data-folder')).toBe('archive-first'));
+  finishActive(channelPage());
+  await new Promise(resolve => setTimeout(resolve, 0));
+  expect(document.querySelector('.main-panel .current-channel strong')?.textContent).toBe('archive-first');
+  expect(calls.filter(url => url.pathname !== '/api/channels').map(url => [url.searchParams.get('area'), url.searchParams.get('folder')]))
+    .toEqual([['archive', 'archive-first'], ['archive', 'archive-first']]);
   vi.unstubAllGlobals();
 });
