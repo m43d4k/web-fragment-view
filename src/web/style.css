@@ -29,7 +29,7 @@ button:focus-visible, input:focus-visible, a:focus-visible { outline: 2px solid 
 .app-shell { display: flex; width: 100%; height: 100%; overflow: hidden; background: var(--bg); }
 .sidebar { z-index: 4; display: flex; flex: 0 0 264px; flex-direction: column; min-width: 0; padding: max(18px, env(safe-area-inset-top)) 12px max(16px, env(safe-area-inset-bottom)); background: #1c1e25; border-right: 1px solid #15161b; overflow-y: auto; }
 .sidebar-head { display: flex; align-items: center; gap: 11px; padding: 3px 8px 21px; }
-.brand-mark { display: grid; width: 38px; height: 38px; flex: 0 0 38px; place-items: center; border-radius: 12px; background: linear-gradient(140deg, #b3a0ff, #7961cf); color: #201b35; font-size: 25px; font-weight: 700; box-shadow: 0 4px 16px #a78bfa22; }
+.brand-mark { display: block; width: 38px; height: 38px; flex: 0 0 38px; border-radius: 22%; box-shadow: 0 4px 16px #a78bfa22; }
 .sidebar-head h1 { margin: 1px 0 0; color: #f2f2f5; font-size: 15px; font-weight: 700; letter-spacing: -.02em; }
 .eyebrow { margin: 0; color: var(--subtle); font-size: 9px; font-weight: 700; letter-spacing: .12em; }
 .icon-button { display: grid; place-items: center; width: 38px; height: 38px; flex: 0 0 38px; border: 0; border-radius: 9px; background: transparent; color: #b1b3bd; cursor: pointer; font-size: 17px; }

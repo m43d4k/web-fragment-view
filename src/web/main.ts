@@ -407,7 +407,7 @@ function render(): void {
   const template = document.createElement('template');
   template.innerHTML = `<div class="app-shell">
     <aside class="sidebar${state.channelDrawerOpen ? ' drawer-open' : ''}" id="channel-panel" aria-label="チャンネル">
-      <div class="sidebar-head"><div class="brand-mark">f</div><div><p class="eyebrow">PRIVATE VAULT</p><h1>Fragment View</h1></div><button class="icon-button close-drawer" data-action="close-drawer" aria-label="チャンネルを閉じる">×</button></div>
+      <div class="sidebar-head"><img class="brand-mark" src="/favicon.svg" width="38" height="38" alt="" /><div><p class="eyebrow">PRIVATE VAULT</p><h1>Fragment View</h1></div><button class="icon-button close-drawer" data-action="close-drawer" aria-label="チャンネルを閉じる">×</button></div>
       <div class="area-switch" role="group" aria-label="記事の範囲">
         <button data-action="area" data-area="active" aria-pressed="${state.area === 'active'}">General</button>
         <button data-action="area" data-area="archive" aria-pressed="${state.area === 'archive'}">Archive</button>
