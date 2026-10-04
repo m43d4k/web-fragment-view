@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
-import { expect, it, vi } from 'vitest';
+import { beforeEach, expect, it, vi } from 'vitest';
 import type { Article } from '../src/shared/types';
+
+beforeEach(() => sessionStorage.clear());
 
 const channelPage = () => Response.json({
   items: [{ folder: 'notes', area: 'active', count: 1 }], revision: 1, nextCursor: null,
@@ -459,5 +461,46 @@ it('opens the first folder of the new area and ignores a late channel response f
   expect(document.querySelector('.main-panel .current-channel strong')?.textContent).toBe('archive-first');
   expect(calls.filter(url => url.pathname !== '/api/channels').map(url => [url.searchParams.get('area'), url.searchParams.get('folder')]))
     .toEqual([['archive', 'archive-first'], ['archive', 'archive-first']]);
+  vi.unstubAllGlobals();
+});
+
+
+it('restores the last folder and area after reload, including a folder beyond the first channel page', async () => {
+  const calls: URL[] = [];
+  let reloaded = false;
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+    const parsed = new URL(url, 'https://viewer.example');
+    calls.push(parsed);
+    const area = parsed.searchParams.get('area') ?? 'active';
+    const folders = area === 'active' ? ['first', 'second'] : ['archive-first', 'archive-second'];
+    return Response.json({ items: parsed.pathname === '/api/channels'
+      ? (reloaded ? folders.slice(0, 1) : folders).map(folder => ({ folder, area, count: 1 })) : [],
+      revision: 1, nextCursor: reloaded && parsed.pathname === '/api/channels' ? 'more' : null });
+  }));
+  const boot = async () => {
+    document.body.innerHTML = '<div id="app"></div>';
+    vi.resetModules();
+    await import('../src/web/main');
+    await vi.waitFor(() => expect(document.querySelector('.loading-row')).toBeNull());
+  };
+  const click = async (selector: string) => {
+    document.querySelector<HTMLButtonElement>(selector)!.click();
+    await vi.waitFor(() => expect(document.querySelector('.loading-row')).toBeNull());
+  };
+  await boot();
+  await click('[data-folder="second"]');
+  await click('[data-action="area"][data-area="archive"]');
+  await click('[data-folder="archive-second"]');
+  reloaded = true;
+  calls.length = 0;
+  await boot();
+  expect(document.querySelector('.main-panel .current-channel strong')?.textContent).toBe('archive-second');
+  expect(calls.filter(url => url.pathname === '/api/articles').map(url => [url.searchParams.get('area'), url.searchParams.get('folder')]))
+    .toEqual([['archive', 'archive-second']]);
+  await click('[data-action="area"][data-area="active"]');
+  expect(document.querySelector('.main-panel .current-channel strong')?.textContent).toBe('second');
+  sessionStorage.clear();
+  await boot();
+  expect(document.querySelector('.main-panel .current-channel strong')?.textContent).toBe('first');
   vi.unstubAllGlobals();
 });

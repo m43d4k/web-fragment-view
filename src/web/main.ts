@@ -41,8 +41,15 @@ interface FeedState {
   resetScroll: boolean;
 }
 
+const selectionKey = 'fragment-view:selected-area';
+const folderKey = (area: Area) => `fragment-view:selected-folder:${area}`;
+const savedArea = sessionStorage.getItem(selectionKey);
+if (savedArea !== null && savedArea !== 'active' && savedArea !== 'archive') {
+  throw new Error('保存された表示範囲が不正です。タブを閉じて開き直してください。');
+}
+
 const state: State = {
-  area: 'active',
+  area: savedArea ?? 'active',
   folder: null,
   selectedTags: new Set(),
   tagQuery: '',
@@ -153,6 +160,10 @@ function closeSearch(): void {
 }
 
 function selectFolder(folder: string | null): void {
+  if (folder !== null) {
+    sessionStorage.setItem(selectionKey, state.area);
+    sessionStorage.setItem(folderKey(state.area), folder);
+  }
   state.folder = folder;
   state.selectedTags.clear();
   state.tags = emptyMetadata();
@@ -198,7 +209,7 @@ async function loadMetadata<T>(kind: 'channels' | 'tags', reset = false): Promis
     metadata.items = [...metadata.items, ...page.items];
     metadata.cursor = page.nextCursor;
     if (kind === 'channels' && state.folder === null && state.channels.items.length > 0) {
-      selectFolder(state.channels.items[0].folder);
+      selectFolder(sessionStorage.getItem(folderKey(state.area)) ?? state.channels.items[0].folder);
     }
   } catch (error) {
     if (!isCurrent()) return;
@@ -470,6 +481,7 @@ app.addEventListener('click', (event) => {
   if (action === 'area') {
     const area = target.dataset.area as Area;
     if (state.area === area) return;
+    sessionStorage.setItem(selectionKey, area);
     state.area = area;
     metadataControllers.forEach((entry) => entry.controller.abort());
     metadataControllers = [];
