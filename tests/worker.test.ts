@@ -317,3 +317,31 @@ describe('read API', () => {
     expect((await request('/api/assets/asset-1?variant=thumbnail')).status).toBe(404);
   });
 });
+
+it('requires favorites in addition to OR tags, search and dates, and scopes pagination', async () => {
+  const fixtures = Array.from({ length: 23 }, (_, i) => ({
+    id: `fav-${String(i).padStart(2, '0')}`,
+    tags: i < 21 ? ['favorite', 'memo'] : i === 21 ? ['memo'] : ['favorite', 'other'],
+  }));
+  try {
+    for (const { id, tags } of fixtures) {
+      await env.DB.prepare('INSERT INTO articles (id,path,area,folder,title,created_at,updated_at,body,tags_json,attachments_json,hash,search_text,search_tokens) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)')
+        .bind(id, `active/favorites/${id}.md`, 'active', 'favorites', 'note', '2026-09-01T00:00:00.000Z',
+          '2026-09-01T00:00:00.000Z', 'note', JSON.stringify(tags), '[]', id, normalizeSearch('note'), searchTokens('note')).run();
+    }
+    const filter = '/api/articles?folder=favorites&favorites=true&tag=memo&tag=missing&tagMode=OR&q=note&dateFrom=2026-09-01&dateTo=2026-09-01';
+    const first = await (await request(filter)).json() as any;
+    expect(first.items).toHaveLength(20);
+    expect(first.items.every((item: any) => item.tags.includes('favorite') && item.tags.includes('memo'))).toBe(true);
+    const second = await (await request(filter + '&cursor=' + encodeURIComponent(first.nextCursor))).json() as any;
+    expect(second.items).toHaveLength(1);
+    expect(new Set([...first.items, ...second.items].map(item => item.id)).size).toBe(21);
+    expect(second.nextCursor).toBeNull();
+    expect((await request(filter.replace('favorites=true', 'favorites=false') + '&cursor=' + encodeURIComponent(first.nextCursor))).status).toBe(400);
+    expect((await request('/api/articles?favorites=invalid')).status).toBe(400);
+    const empty = await (await request('/api/articles?folder=missing&favorites=true')).json() as any;
+    expect(empty.items).toEqual([]);
+  } finally {
+    for (const { id } of fixtures) await env.DB.prepare('DELETE FROM articles WHERE id=?').bind(id).run();
+  }
+});

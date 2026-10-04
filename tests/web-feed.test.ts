@@ -321,3 +321,47 @@ it('refreshes tag availability with selection and mode, keeping selected tags vi
   await vi.waitFor(() => expect(tagCalls.at(-1)?.searchParams.getAll('tag')).toEqual([]));
   vi.unstubAllGlobals();
 });
+
+it('toggles favorites independently of OR tags and applies them to search and subsequent pages', async () => {
+  document.body.innerHTML = '<div id="app"></div>';
+  const calls: URL[] = [];
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+    const parsed = new URL(url, 'https://viewer.example');
+    if (parsed.pathname === '/api/articles') calls.push(parsed);
+    return Response.json({ items: parsed.pathname === '/api/tags' ? [{ name: 'memo', count: 1 }] : [], revision: 1,
+      nextCursor: parsed.pathname === '/api/articles' && !parsed.searchParams.has('cursor') ? 'next' : null });
+  }));
+  vi.resetModules();
+  await import('../src/web/main');
+  await vi.waitFor(() => expect(document.querySelectorAll('.tag-option')).toHaveLength(1));
+  const click = async (selector: string) => {
+    document.querySelector<HTMLButtonElement>(selector)!.click();
+    await vi.waitFor(() => expect(document.querySelector('.loading-row')).toBeNull());
+  };
+  const favorite = '.main-panel [data-action="toggle-favorites"]';
+  expect(document.querySelector(favorite)?.getAttribute('aria-pressed')).toBe('false');
+  await click('.tag-option');
+  await click('[data-action="toggle-tag-mode"]');
+  await click(favorite);
+  expect(document.querySelector(favorite)?.getAttribute('aria-pressed')).toBe('true');
+  expect(calls.at(-1)?.searchParams.get('favorites')).toBe('true');
+  expect(calls.at(-1)?.searchParams.getAll('tag')).toEqual(['memo']);
+  expect(calls.at(-1)?.searchParams.get('tagMode')).toBe('OR');
+  expect(calls.at(-1)?.searchParams.has('cursor')).toBe(false);
+  await click('.main-panel [data-action="load-more"]');
+  expect(calls.at(-1)?.searchParams.get('favorites')).toBe('true');
+  expect(calls.at(-1)?.searchParams.get('cursor')).toBe('next');
+  await click('[data-action="open-search"]');
+  document.querySelector<HTMLInputElement>('#search-input')!.value = 'note';
+  document.querySelector<HTMLFormElement>('#search-form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+  await vi.waitFor(() => expect(calls.at(-1)?.searchParams.get('q')).toBe('note'));
+  expect(calls.at(-1)?.searchParams.get('favorites')).toBe('true');
+  await click(favorite);
+  expect(document.querySelector(favorite)?.getAttribute('aria-pressed')).toBe('false');
+  expect(calls.at(-1)?.searchParams.has('favorites')).toBe(false);
+  await click(favorite);
+  await click('.main-panel .clear-all');
+  expect(document.querySelector(favorite)?.getAttribute('aria-pressed')).toBe('false');
+  expect(calls.at(-1)?.searchParams.has('favorites')).toBe(false);
+  vi.unstubAllGlobals();
+});

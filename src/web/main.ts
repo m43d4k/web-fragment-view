@@ -16,6 +16,7 @@ interface State extends FeedState {
   selectedTags: Set<string>;
   tagQuery: string;
   tagMode: 'AND' | 'OR';
+  favoritesOnly: boolean;
   query: string;
   dateFrom: string;
   dateTo: string;
@@ -46,6 +47,7 @@ const state: State = {
   selectedTags: new Set(),
   tagQuery: '',
   tagMode: 'AND',
+  favoritesOnly: false,
   query: '',
   dateFrom: '',
   dateTo: '',
@@ -221,6 +223,7 @@ async function loadFeed(firstPage = false, target: FeedState = state): Promise<v
     folder: state.folder,
     tag: [...state.selectedTags].sort(),
     tagMode: state.tagMode,
+    favorites: state.favoritesOnly ? 'true' : null,
     q: target === searchFeed ? state.query || null : null,
     dateFrom: target === searchFeed ? state.dateFrom || null : null,
     dateTo: target === searchFeed ? state.dateTo || null : null,
@@ -372,7 +375,7 @@ function render(): void {
     const unavailable = !selected && tag.available === false;
     return `<button class="tag-option${selected ? ' selected' : ''}" data-action="select-tag" data-tag="${escapeHtml(tag.name)}" aria-pressed="${selected}" ${unavailable ? 'disabled title="該当する記事がありません"' : ''}># ${escapeHtml(tag.name)} ${tag.count === undefined ? '' : `<span>${tag.count}</span>`}</button>`;
   }).join('');
-  const activeFilters = state.folder || state.selectedTags.size > 0;
+  const activeFilters = state.folder || state.selectedTags.size > 0 || state.favoritesOnly;
   const filtered = activeFilters;
   const template = document.createElement('template');
   template.innerHTML = `<div class="app-shell">
@@ -401,7 +404,7 @@ function render(): void {
     <main class="main-panel">
       <header class="topbar"><button class="icon-button menu-button" data-action="open-drawer" aria-label="チャンネル一覧を開く" aria-expanded="${state.channelDrawerOpen}" aria-controls="channel-panel">☰</button>
         <div class="current-channel"><strong>${escapeHtml(state.folder ?? 'すべての記事')}</strong><span class="area-badge">${state.area === 'active' ? 'General' : 'Archive'}</span></div>
-        <span class="topbar-spacer"></span><span class="vault-status"><i></i>プライベート</span><button class="icon-button search-toggle" data-action="open-search" aria-label="記事検索を開く" aria-expanded="${state.searchOpen}" aria-controls="search-panel">${searchIcon}</button>
+        <span class="topbar-spacer"></span><button class="icon-button favorite-toggle" data-action="toggle-favorites" aria-label="お気に入りで絞り込む" aria-pressed="${state.favoritesOnly}" title="お気に入りで絞り込む"><span aria-hidden="true">♥</span></button><button class="icon-button search-toggle" data-action="open-search" aria-label="記事検索を開く" aria-expanded="${state.searchOpen}" aria-controls="search-panel">${searchIcon}</button>
       </header>
       ${activeFilters ? `<div class="active-filters">${state.folder ? `<button data-action="clear-folder">${escapeHtml(state.folder)} <span>×</span></button>` : ''}${[...state.selectedTags].map((tag) => `<button data-action="clear-tag" data-tag="${escapeHtml(tag)}" aria-label="${escapeHtml(tag)} の絞り込みを解除"># ${escapeHtml(tag)} <span>×</span></button>`).join('')}<button class="clear-all" data-action="clear-filters">条件をクリア</button></div>` : ''}
       ${feedMarkup(state, Boolean(filtered))}
@@ -467,6 +470,10 @@ app.addEventListener('click', (event) => {
     state.channelDrawerOpen = false;
     selectFolder(target.dataset.folder || null);
     if (restoreFocus) focusMenuButton();
+  } else if (action === 'toggle-favorites') {
+    state.favoritesOnly = !state.favoritesOnly;
+    resetFeed();
+    app?.querySelector<HTMLButtonElement>('[data-action="toggle-favorites"]')?.focus({ preventScroll: true });
   } else if (action === 'select-tag') {
     const tag = target.dataset.tag;
     if (!tag) return;
@@ -490,7 +497,7 @@ app.addEventListener('click', (event) => {
   else if (action === 'clear-folder') selectFolder(null);
   else if (action === 'open-search') { state.searchOpen = true; render(); app?.querySelector<HTMLInputElement>('#search-input')?.focus(); }
   else if (action === 'close-search') closeSearch();
-  else if (action === 'clear-filters') { state.query = ''; state.dateFrom = ''; state.dateTo = ''; selectFolder(null); }
+  else if (action === 'clear-filters') { state.favoritesOnly = false; state.query = ''; state.dateFrom = ''; state.dateTo = ''; selectFolder(null); }
   else if (action === 'clear-dates') { state.dateFrom = ''; state.dateTo = ''; resetOneFeed(searchFeed); }
   else if (action === 'load-channels') void loadMetadata('channels');
   else if (action === 'load-tags') void loadMetadata('tags');

@@ -34,6 +34,9 @@ button:focus-visible, input:focus-visible, a:focus-visible { outline: 2px solid 
 .eyebrow { margin: 0; color: var(--subtle); font-size: 9px; font-weight: 700; letter-spacing: .12em; }
 .icon-button { display: grid; place-items: center; width: 38px; height: 38px; flex: 0 0 38px; border: 0; border-radius: 9px; background: transparent; color: #b1b3bd; cursor: pointer; font-size: 17px; }
 .icon-button:hover { background: #ffffff0c; color: #fff; }
+.favorite-toggle { border: 1px solid var(--line); color: var(--subtle); }
+.favorite-toggle:hover, .favorite-toggle[aria-pressed="true"] { color: var(--danger); }
+.favorite-toggle:hover { border-color: var(--danger); }
 .close-drawer, .menu-button { display: none; }
 .area-switch { display: grid; grid-template-columns: 1fr 1fr; gap: 3px; margin: 0 4px 26px; padding: 4px; border: 1px solid #30313a; border-radius: 10px; background: #17191f; }
 .area-switch button { padding: 9px 6px; border: 0; border-radius: 7px; background: transparent; color: var(--muted); font-size: 12px; cursor: pointer; }
@@ -64,8 +67,6 @@ button:focus-visible, input:focus-visible, a:focus-visible { outline: 2px solid 
 .current-channel strong { overflow: hidden; color: #dedfe5; font-size: 14px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .area-badge { padding: 4px 7px; border: 1px solid #3a3944; border-radius: 5px; color: #aaa2c0; font-size: 9px; white-space: nowrap; }
 .topbar-spacer { flex: 1; }
-.vault-status { display: flex; align-items: center; gap: 7px; color: #8f929e; font-size: 11px; }
-.vault-status i { width: 6px; height: 6px; border-radius: 50%; background: var(--green); box-shadow: 0 0 8px #50c89a66; }
 .feed-toolbar { display: flex; flex: 0 0 auto; align-items: center; justify-content: center; padding: 10px 32px; border-bottom: 1px solid #252730; background: radial-gradient(ellipse at 5% 0%, #8e78d517, transparent 46%), #1c1e25; }
 .search-form { display: flex; width: min(100%, 836px); height: 39px; flex: 0 0 auto; overflow: hidden; border: 1px solid #363842; border-radius: 8px; background: #17191f; }
 .search-form:focus-within { border-color: #8470bf; box-shadow: 0 0 0 3px #a78bfa18; }
@@ -149,7 +150,6 @@ button:focus-visible, input:focus-visible, a:focus-visible { outline: 2px solid 
   .menu-button { display: grid; width: 35px; height: 35px; flex-basis: 35px; }
   .current-channel { gap: 7px; }
   .current-channel strong { max-width: 48vw; font-size: 13px; }
-  .vault-status { font-size: 0; }.vault-status i { width: 7px; height: 7px; }
   .feed-toolbar { padding: 8px 14px; }
   .search-form { width: 100%; height: 36px; }
   .search-form input { font-size: 12px; }
@@ -204,7 +204,6 @@ button:focus-visible, input:focus-visible, a:focus-visible { outline: 2px solid 
 @media (min-width: 761px) and (max-width: 1100px) {
   .app-shell:has(.search-panel) .sidebar { flex-basis: 200px; }
   .app-shell:has(.search-panel) .main-panel > .topbar { padding: 0 12px; }
-  .app-shell:has(.search-panel) .vault-status { display: none; }
   .app-shell:has(.search-panel) .feed-toolbar { padding: 10px 12px; }
   .app-shell:has(.search-panel) .date-filter input { flex: 1 1 0; width: 0; }
 }

@@ -79,6 +79,8 @@ async function listArticles(url: URL, env: Env): Promise<Response> {
   const rawTags = url.searchParams.getAll('tag');
   const tagMode = url.searchParams.get('tagMode') ?? 'AND';
   const q = url.searchParams.get('q') ?? '';
+  const favorites = url.searchParams.get('favorites') ?? 'false';
+  if (favorites !== 'true' && favorites !== 'false') return invalid('お気に入りの絞り込み条件が不正です。');
   const dateFrom = calendarDate(url.searchParams.get('dateFrom'));
   const dateTo = calendarDate(url.searchParams.get('dateTo'));
   if (dateFrom && dateTo && dateFrom > dateTo) return invalid('日付の範囲が不正です。');
@@ -88,7 +90,7 @@ async function listArticles(url: URL, env: Env): Promise<Response> {
   const tags = [...new Set(rawTags)].sort();
   let search: ReturnType<typeof searchQuery>;
   try { search = searchQuery(q); } catch (error) { return invalid((error as Error).message); }
-  const scope = JSON.stringify(['articles', area, folder, tags, tagMode, q, dateFrom, dateTo]);
+  const scope = JSON.stringify(['articles', area, folder, tags, tagMode, q, dateFrom, dateTo, favorites]);
   const cursor = decodeCursor(url.searchParams.get('cursor'), scope);
   if (cursor && cursor.after.length !== 2) return invalid('カーソルが不正です。');
   const where = ['a.area = ?'];
@@ -96,6 +98,10 @@ async function listArticles(url: URL, env: Env): Promise<Response> {
   if (folder !== null) { where.push('a.folder = ?'); params.push(folder); }
   if (dateFrom) { where.push('a.created_at >= ?'); params.push(jstMidnight(dateFrom)); }
   if (dateTo) { where.push('a.created_at < ?'); params.push(jstMidnight(dateTo, true)); }
+  if (favorites === 'true') {
+    where.push('a.id IN (SELECT article_id FROM article_tags WHERE tag = ?)');
+    params.push('favorite');
+  }
   if (tags.length) {
     const placeholders = tags.map(() => '?').join(',');
     if (tagMode === 'AND') {
