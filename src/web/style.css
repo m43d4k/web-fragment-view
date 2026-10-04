@@ -78,7 +78,8 @@ button:focus-visible, input:focus-visible, a:focus-visible { outline: 2px solid 
 .active-filters button { padding: 6px 8px; border: 1px solid #484052; border-radius: 5px; background: #302b3b; color: #d7caf9; font-size: 10px; cursor: pointer; }
 .active-filters button span { padding-left: 5px; color: #aaa0c1; }
 .active-filters .clear-all { border-color: transparent; background: transparent; color: #90929c; }
-.feed-scroll { width: 100%; min-height: 0; flex: 1; overflow-y: auto; overscroll-behavior: contain; scrollbar-color: #393b45 transparent; scrollbar-width: thin; }
+.sidebar, .feed-scroll { scrollbar-color: #393b45 transparent; scrollbar-width: thin; }
+.feed-scroll { width: 100%; min-height: 0; flex: 1; overflow-y: auto; overscroll-behavior: contain; }
 .feed-content { width: min(100%, 900px); margin: 0 auto; padding: 15px 28px max(38px, env(safe-area-inset-bottom)); }
 .post { padding: 19px 7px 22px; border-bottom: 1px solid #292b34; animation: appear .18s ease-out; }
 @keyframes appear { from { opacity: .6; transform: translateY(3px); } to { opacity: 1; transform: translateY(0); } }
